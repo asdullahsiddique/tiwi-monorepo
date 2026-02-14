@@ -462,6 +462,28 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
       });
     }
 
+    // Register any new types that were created during enrichment
+    for (const newType of enrichment.createdTypes) {
+      try {
+        await typeRepo.createType({
+          orgId: payload.orgId,
+          typeName: newType.typeName,
+          description: newType.description,
+          createdBy: payload.userId,
+        });
+        await logRepo.appendProcessingLog({
+          orgId: payload.orgId,
+          fileId: payload.fileId,
+          logId: nanoid(),
+          level: "INFO",
+          message: `Registered new entity type: ${newType.typeName}`,
+          metadata: { description: newType.description },
+        });
+      } catch {
+        // Type may already exist, that's fine
+      }
+    }
+
     // Persist extracted entities to Neo4j
     for (const entity of enrichment.entities) {
       const entityId = entity.matchedExistingEntityId ?? nanoid();
@@ -481,8 +503,10 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
       await entityRepo.upsertRelationship({
         orgId: payload.orgId,
         relationshipId: nanoid(),
-        fromName: rel.from,
-        toName: rel.to,
+        fromTypeName: rel.fromTypeName,
+        fromName: rel.fromName,
+        toTypeName: rel.toTypeName,
+        toName: rel.toName,
         relationshipType: rel.relationshipType,
         properties: rel.properties,
         sourceFileId: payload.fileId,

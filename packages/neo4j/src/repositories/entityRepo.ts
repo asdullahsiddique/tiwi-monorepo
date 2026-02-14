@@ -1,4 +1,4 @@
-import type { Driver } from "neo4j-driver";
+import type { Driver, ManagedTransaction, Integer } from "neo4j-driver";
 import neo4j from "neo4j-driver";
 
 /**
@@ -8,8 +8,48 @@ import neo4j from "neo4j-driver";
 function toNumber(value: unknown): number {
   if (value === null || value === undefined) return 0;
   if (typeof value === "number") return value;
-  if (neo4j.isInt(value)) return value.toNumber();
+  if (neo4j.isInt(value)) return (value as Integer).toNumber();
   return Number(value) || 0;
+}
+
+/**
+ * Reserved system labels that cannot be used as entity types.
+ * These labels are used by the core graph schema.
+ */
+const RESERVED_LABELS = new Set([
+  "Organization", // Tenant org nodes
+  "User",         // User nodes  
+  "File",         // File nodes
+  "Chunk",        // Embedding chunks
+  "FileLog",      // Processing logs
+  "TypeRegistry", // Type definitions
+]);
+
+/**
+ * Sanitize and prefix a label name for use as an entity type in Cypher queries.
+ * Prefixes with "E_" to avoid collision with system labels like :Organization, :File, etc.
+ * Labels must be valid identifiers (alphanumeric + underscore, starting with letter).
+ */
+function sanitizeLabel(label: string): string {
+  // Remove any non-alphanumeric characters except underscore
+  let sanitized = label.replace(/[^a-zA-Z0-9_]/g, "");
+  // Ensure it starts with a letter
+  if (!/^[a-zA-Z]/.test(sanitized)) {
+    sanitized = `X${sanitized}`;
+  }
+  // Prefix all entity labels with E_ to avoid collision with system labels
+  return `E_${sanitized}`;
+}
+
+/**
+ * Get all registered type labels for querying.
+ * Returns a Cypher WHERE clause fragment.
+ */
+function buildTypeLabelsFilter(types: string[]): string {
+  if (types.length === 0) {
+    return "true"; // Match all
+  }
+  return types.map((t) => `e:${sanitizeLabel(t)}`).join(" OR ");
 }
 
 export type EntityType = {
@@ -39,8 +79,10 @@ export type EntityRecord = {
 export type RelationshipRecord = {
   relationshipId: string;
   fromEntityId: string;
+  fromTypeName: string;
   fromName: string;
   toEntityId: string;
+  toTypeName: string;
   toName: string;
   relationshipType: string;
   properties: Record<string, unknown>;
@@ -57,27 +99,15 @@ export class EntityRepository {
   async getAllEntityTypes(params: { orgId: string }): Promise<EntityType[]> {
     const session = this.driver.session({ defaultAccessMode: "READ" });
     try {
-      // Get built-in types from TypeRegistry
+      // Get types from TypeRegistry with entity counts
       const typesResult = await session.executeRead((tx) =>
         tx.run(
           `
 MATCH (t:TypeRegistry {orgId: $orgId})
-OPTIONAL MATCH (e:Entity {orgId: $orgId, typeName: t.typeName})
+OPTIONAL MATCH (e {orgId: $orgId})
+WHERE any(label IN labels(e) WHERE label = t.typeName)
 RETURN t.typeName AS typeName, t.description AS description, t.isBuiltIn AS isBuiltIn, count(e) AS entityCount
 ORDER BY entityCount DESC, typeName
-          `,
-          { orgId: params.orgId }
-        )
-      );
-
-      // Also get types from entities that may not be in registry
-      const entityTypesResult = await session.executeRead((tx) =>
-        tx.run(
-          `
-MATCH (e:Entity {orgId: $orgId})
-WHERE NOT EXISTS { MATCH (t:TypeRegistry {orgId: $orgId, typeName: e.typeName}) }
-RETURN e.typeName AS typeName, count(e) AS entityCount
-ORDER BY entityCount DESC
           `,
           { orgId: params.orgId }
         )
@@ -90,16 +120,6 @@ ORDER BY entityCount DESC
         isBuiltIn: r.get("isBuiltIn") ?? false,
       }));
 
-      // Add unregistered types
-      for (const r of entityTypesResult.records) {
-        types.push({
-          typeName: r.get("typeName"),
-          description: "",
-          entityCount: toNumber(r.get("entityCount")),
-          isBuiltIn: false,
-        });
-      }
-
       return types;
     } finally {
       await session.close();
@@ -109,6 +129,7 @@ ORDER BY entityCount DESC
   /**
    * Get summary of existing entities for AI context.
    * Returns most-mentioned entities to help AI resolve matches.
+   * Queries across all dynamic node labels.
    */
   async getEntitiesSummary(params: {
     orgId: string;
@@ -117,17 +138,38 @@ ORDER BY entityCount DESC
     const session = this.driver.session({ defaultAccessMode: "READ" });
     const limit = params.limit ?? 100;
     try {
-      const result = await session.executeRead((tx) =>
+      // First get all registered types
+      const typesResult = await session.executeRead((tx) =>
         tx.run(
-          `
-MATCH (e:Entity {orgId: $orgId})
-OPTIONAL MATCH (e)-[:EXTRACTED_FROM]->(f:File)
-RETURN e.entityId AS entityId, e.typeName AS typeName, e.name AS name, count(f) AS mentionCount
-ORDER BY mentionCount DESC, e.name
-LIMIT $limit
-          `,
-          { orgId: params.orgId, limit: neo4j.int(limit) }
+          `MATCH (t:TypeRegistry {orgId: $orgId}) RETURN t.typeName AS typeName`,
+          { orgId: params.orgId }
         )
+      );
+      const typeNames = typesResult.records.map((r) => r.get("typeName") as string);
+
+      if (typeNames.length === 0) {
+        return [];
+      }
+
+      // Query entities across all registered type labels
+      // Using UNION to query each type label
+      const unionQueries = typeNames.map((typeName) => {
+        const label = sanitizeLabel(typeName);
+        return `
+          MATCH (e:${label} {orgId: $orgId})
+          OPTIONAL MATCH (e)-[:EXTRACTED_FROM]->(f:File)
+          RETURN e.entityId AS entityId, "${typeName}" AS typeName, e.name AS name, count(f) AS mentionCount
+        `;
+      });
+
+      const fullQuery = `
+        ${unionQueries.join(" UNION ALL ")}
+        ORDER BY mentionCount DESC, name
+        LIMIT $limit
+      `;
+
+      const result = await session.executeRead((tx) =>
+        tx.run(fullQuery, { orgId: params.orgId, limit: neo4j.int(limit) })
       );
 
       return result.records.map((r) => ({
@@ -142,7 +184,8 @@ LIMIT $limit
   }
 
   /**
-   * Upsert an entity. If entity with same name+type exists, update it.
+   * Upsert an entity with dynamic node label.
+   * Creates (:Person), (:Organization), (:Invoice) etc. based on typeName.
    * Links entity to source file.
    */
   async upsertEntity(params: {
@@ -155,12 +198,15 @@ LIMIT $limit
     confidence?: number;
   }): Promise<void> {
     const session = this.driver.session({ defaultAccessMode: "WRITE" });
+    const label = sanitizeLabel(params.typeName);
+
     try {
       await session.executeWrite(async (tx) => {
-        // Upsert entity - match by orgId + typeName + name (case-insensitive)
+        // Upsert entity with dynamic label - match by orgId + name (case-insensitive)
+        // Using string interpolation for label (safe because we sanitize it)
         await tx.run(
           `
-MERGE (e:Entity {orgId: $orgId, typeName: $typeName, nameLower: toLower($name)})
+MERGE (e:${label} {orgId: $orgId, nameLower: toLower($name)})
   ON CREATE SET
     e.entityId = $entityId,
     e.name = $name,
@@ -174,7 +220,6 @@ MERGE (e:Entity {orgId: $orgId, typeName: $typeName, nameLower: toLower($name)})
           {
             orgId: params.orgId,
             entityId: params.entityId,
-            typeName: params.typeName,
             name: params.name,
             properties: params.properties ? JSON.stringify(params.properties) : null,
           }
@@ -183,24 +228,23 @@ MERGE (e:Entity {orgId: $orgId, typeName: $typeName, nameLower: toLower($name)})
         // Link entity to organization
         await tx.run(
           `
-MATCH (e:Entity {orgId: $orgId, typeName: $typeName, nameLower: toLower($name)})
+MATCH (e:${label} {orgId: $orgId, nameLower: toLower($name)})
 MATCH (o:Organization {orgId: $orgId})
 MERGE (o)-[:HAS_ENTITY]->(e)
           `,
-          { orgId: params.orgId, typeName: params.typeName, name: params.name }
+          { orgId: params.orgId, name: params.name }
         );
 
         // Link entity to source file
         await tx.run(
           `
-MATCH (e:Entity {orgId: $orgId, typeName: $typeName, nameLower: toLower($name)})
+MATCH (e:${label} {orgId: $orgId, nameLower: toLower($name)})
 MATCH (f:File {orgId: $orgId, fileId: $fileId})
 MERGE (e)-[r:EXTRACTED_FROM]->(f)
   ON CREATE SET r.confidence = $confidence, r.createdAt = datetime()
           `,
           {
             orgId: params.orgId,
-            typeName: params.typeName,
             name: params.name,
             fileId: params.sourceFileId,
             confidence: params.confidence ?? 1.0,
@@ -213,32 +257,35 @@ MERGE (e)-[r:EXTRACTED_FROM]->(f)
   }
 
   /**
-   * Create a relationship between two entities.
-   * Entities are matched by name (case-insensitive).
+   * Create a relationship between two entities with dynamic relationship type.
+   * Entities are matched by name (case-insensitive) across all type labels.
+   * Uses APOC for dynamic relationship type creation.
    */
   async upsertRelationship(params: {
     orgId: string;
     relationshipId: string;
+    fromTypeName: string;
     fromName: string;
+    toTypeName: string;
     toName: string;
     relationshipType: string;
     properties?: Record<string, unknown>;
     sourceFileId: string;
   }): Promise<void> {
     const session = this.driver.session({ defaultAccessMode: "WRITE" });
+    const fromLabel = sanitizeLabel(params.fromTypeName);
+    const toLabel = sanitizeLabel(params.toTypeName);
+    const relType = sanitizeLabel(params.relationshipType);
+
     try {
-      // Use APOC or dynamic relationship type via Cypher
-      // Since relationship types are dynamic, we use a workaround with CALL subquery
       await session.executeWrite(async (tx) => {
-        // First, ensure both entities exist (they should from prior upserts)
-        // Then create the relationship with the dynamic type
-        // Neo4j requires relationship types to be known at query time,
-        // so we'll store the type as a property and use a generic relationship
+        // Create relationship with dynamic type using string interpolation
+        // Both labels and relationship type are sanitized
         await tx.run(
           `
-MATCH (from:Entity {orgId: $orgId, nameLower: toLower($fromName)})
-MATCH (to:Entity {orgId: $orgId, nameLower: toLower($toName)})
-MERGE (from)-[r:RELATES_TO {relationshipType: $relationshipType}]->(to)
+MATCH (from:${fromLabel} {orgId: $orgId, nameLower: toLower($fromName)})
+MATCH (to:${toLabel} {orgId: $orgId, nameLower: toLower($toName)})
+MERGE (from)-[r:${relType}]->(to)
   ON CREATE SET
     r.relationshipId = $relationshipId,
     r.properties = $properties,
@@ -252,7 +299,6 @@ MERGE (from)-[r:RELATES_TO {relationshipType: $relationshipType}]->(to)
             relationshipId: params.relationshipId,
             fromName: params.fromName,
             toName: params.toName,
-            relationshipType: params.relationshipType,
             properties: params.properties ? JSON.stringify(params.properties) : null,
             sourceFileId: params.sourceFileId,
           }
@@ -265,6 +311,7 @@ MERGE (from)-[r:RELATES_TO {relationshipType: $relationshipType}]->(to)
 
   /**
    * Get all entities extracted from a specific file.
+   * Queries across all registered type labels.
    */
   async getEntitiesByFile(params: {
     orgId: string;
@@ -272,29 +319,44 @@ MERGE (from)-[r:RELATES_TO {relationshipType: $relationshipType}]->(to)
   }): Promise<EntityRecord[]> {
     const session = this.driver.session({ defaultAccessMode: "READ" });
     try {
-      const result = await session.executeRead((tx) =>
+      // First get all registered types
+      const typesResult = await session.executeRead((tx) =>
         tx.run(
-          `
-MATCH (e:Entity {orgId: $orgId})-[:EXTRACTED_FROM]->(f:File {orgId: $orgId, fileId: $fileId})
-RETURN e
-ORDER BY e.typeName, e.name
-          `,
-          { orgId: params.orgId, fileId: params.fileId }
+          `MATCH (t:TypeRegistry {orgId: $orgId}) RETURN t.typeName AS typeName`,
+          { orgId: params.orgId }
         )
       );
+      const typeNames = typesResult.records.map((r) => r.get("typeName") as string);
 
-      return result.records.map((r) => {
-        const e = r.get("e").properties;
-        return {
-          orgId: e.orgId,
-          entityId: e.entityId,
-          typeName: e.typeName,
-          name: e.name,
-          properties: e.properties ? JSON.parse(e.properties) : {},
-          createdAt: e.createdAt?.toString() ?? "",
-          updatedAt: e.updatedAt?.toString() ?? "",
-        };
+      if (typeNames.length === 0) {
+        return [];
+      }
+
+      // Query entities from each type label that are linked to this file
+      const unionQueries = typeNames.map((typeName) => {
+        const label = sanitizeLabel(typeName);
+        return `
+          MATCH (e:${label} {orgId: $orgId})-[:EXTRACTED_FROM]->(f:File {orgId: $orgId, fileId: $fileId})
+          RETURN e.orgId AS orgId, e.entityId AS entityId, "${typeName}" AS typeName, e.name AS name, 
+                 e.properties AS properties, e.createdAt AS createdAt, e.updatedAt AS updatedAt
+        `;
       });
+
+      const fullQuery = `${unionQueries.join(" UNION ALL ")} ORDER BY typeName, name`;
+
+      const result = await session.executeRead((tx) =>
+        tx.run(fullQuery, { orgId: params.orgId, fileId: params.fileId })
+      );
+
+      return result.records.map((r) => ({
+        orgId: r.get("orgId"),
+        entityId: r.get("entityId"),
+        typeName: r.get("typeName"),
+        name: r.get("name"),
+        properties: r.get("properties") ? JSON.parse(r.get("properties")) : {},
+        createdAt: r.get("createdAt")?.toString() ?? "",
+        updatedAt: r.get("updatedAt")?.toString() ?? "",
+      }));
     } finally {
       await session.close();
     }
@@ -302,6 +364,7 @@ ORDER BY e.typeName, e.name
 
   /**
    * Get all relationships extracted from a specific file.
+   * Queries across all relationship types.
    */
   async getRelationshipsByFile(params: {
     orgId: string;
@@ -309,30 +372,34 @@ ORDER BY e.typeName, e.name
   }): Promise<RelationshipRecord[]> {
     const session = this.driver.session({ defaultAccessMode: "READ" });
     try {
+      // Query all relationships that have the sourceFileId property
       const result = await session.executeRead((tx) =>
         tx.run(
           `
-MATCH (from:Entity {orgId: $orgId})-[r:RELATES_TO {sourceFileId: $fileId}]->(to:Entity {orgId: $orgId})
-RETURN r, from.entityId AS fromEntityId, from.name AS fromName, to.entityId AS toEntityId, to.name AS toName
-ORDER BY r.relationshipType, from.name
+MATCH (from {orgId: $orgId})-[r {sourceFileId: $fileId}]->(to {orgId: $orgId})
+WHERE r.relationshipId IS NOT NULL
+RETURN r.relationshipId AS relationshipId,
+       from.entityId AS fromEntityId, labels(from)[0] AS fromTypeName, from.name AS fromName,
+       to.entityId AS toEntityId, labels(to)[0] AS toTypeName, to.name AS toName,
+       type(r) AS relationshipType, r.properties AS properties, r.createdAt AS createdAt
+ORDER BY relationshipType, fromName
           `,
           { orgId: params.orgId, fileId: params.fileId }
         )
       );
 
-      return result.records.map((r) => {
-        const rel = r.get("r").properties;
-        return {
-          relationshipId: rel.relationshipId,
-          fromEntityId: r.get("fromEntityId"),
-          fromName: r.get("fromName"),
-          toEntityId: r.get("toEntityId"),
-          toName: r.get("toName"),
-          relationshipType: rel.relationshipType,
-          properties: rel.properties ? JSON.parse(rel.properties) : {},
-          createdAt: rel.createdAt?.toString() ?? "",
-        };
-      });
+      return result.records.map((r) => ({
+        relationshipId: r.get("relationshipId"),
+        fromEntityId: r.get("fromEntityId"),
+        fromTypeName: r.get("fromTypeName"),
+        fromName: r.get("fromName"),
+        toEntityId: r.get("toEntityId"),
+        toTypeName: r.get("toTypeName"),
+        toName: r.get("toName"),
+        relationshipType: r.get("relationshipType"),
+        properties: r.get("properties") ? JSON.parse(r.get("properties")) : {},
+        createdAt: r.get("createdAt")?.toString() ?? "",
+      }));
     } finally {
       await session.close();
     }
@@ -340,6 +407,8 @@ ORDER BY r.relationshipType, from.name
 
   /**
    * Get entity by name (case-insensitive match).
+   * If typeName is provided, searches only that label.
+   * Otherwise searches across all registered types.
    */
   async getEntityByName(params: {
     orgId: string;
@@ -348,37 +417,70 @@ ORDER BY r.relationshipType, from.name
   }): Promise<EntityRecord | null> {
     const session = this.driver.session({ defaultAccessMode: "READ" });
     try {
-      const query = params.typeName
-        ? `
-MATCH (e:Entity {orgId: $orgId, typeName: $typeName, nameLower: toLower($name)})
-RETURN e
-          `
-        : `
-MATCH (e:Entity {orgId: $orgId, nameLower: toLower($name)})
-RETURN e
-LIMIT 1
-          `;
+      if (params.typeName) {
+        const label = sanitizeLabel(params.typeName);
+        const result = await session.executeRead((tx) =>
+          tx.run(
+            `
+MATCH (e:${label} {orgId: $orgId, nameLower: toLower($name)})
+RETURN e.orgId AS orgId, e.entityId AS entityId, "${params.typeName}" AS typeName, e.name AS name,
+       e.properties AS properties, e.createdAt AS createdAt, e.updatedAt AS updatedAt
+            `,
+            { orgId: params.orgId, name: params.name }
+          )
+        );
 
-      const result = await session.executeRead((tx) =>
-        tx.run(query, {
-          orgId: params.orgId,
-          name: params.name,
-          typeName: params.typeName ?? null,
-        })
+        if (result.records.length === 0) return null;
+        const r = result.records[0];
+        return {
+          orgId: r.get("orgId"),
+          entityId: r.get("entityId"),
+          typeName: r.get("typeName"),
+          name: r.get("name"),
+          properties: r.get("properties") ? JSON.parse(r.get("properties")) : {},
+          createdAt: r.get("createdAt")?.toString() ?? "",
+          updatedAt: r.get("updatedAt")?.toString() ?? "",
+        };
+      }
+
+      // Search across all registered types
+      const typesResult = await session.executeRead((tx) =>
+        tx.run(
+          `MATCH (t:TypeRegistry {orgId: $orgId}) RETURN t.typeName AS typeName`,
+          { orgId: params.orgId }
+        )
       );
+      const typeNames = typesResult.records.map((r) => r.get("typeName") as string);
 
-      if (result.records.length === 0) return null;
+      for (const typeName of typeNames) {
+        const label = sanitizeLabel(typeName);
+        const result = await session.executeRead((tx) =>
+          tx.run(
+            `
+MATCH (e:${label} {orgId: $orgId, nameLower: toLower($name)})
+RETURN e.orgId AS orgId, e.entityId AS entityId, "${typeName}" AS typeName, e.name AS name,
+       e.properties AS properties, e.createdAt AS createdAt, e.updatedAt AS updatedAt
+LIMIT 1
+            `,
+            { orgId: params.orgId, name: params.name }
+          )
+        );
 
-      const e = result.records[0].get("e").properties;
-      return {
-        orgId: e.orgId,
-        entityId: e.entityId,
-        typeName: e.typeName,
-        name: e.name,
-        properties: e.properties ? JSON.parse(e.properties) : {},
-        createdAt: e.createdAt?.toString() ?? "",
-        updatedAt: e.updatedAt?.toString() ?? "",
-      };
+        if (result.records.length > 0) {
+          const r = result.records[0];
+          return {
+            orgId: r.get("orgId"),
+            entityId: r.get("entityId"),
+            typeName: r.get("typeName"),
+            name: r.get("name"),
+            properties: r.get("properties") ? JSON.parse(r.get("properties")) : {},
+            createdAt: r.get("createdAt")?.toString() ?? "",
+            updatedAt: r.get("updatedAt")?.toString() ?? "",
+          };
+        }
+      }
+
+      return null;
     } finally {
       await session.close();
     }
@@ -386,22 +488,27 @@ LIMIT 1
 
   /**
    * Get related entities via graph traversal.
+   * Traverses all relationship types.
    */
   async getRelatedEntities(params: {
     orgId: string;
     entityId: string;
+    typeName: string;
     depth?: number;
   }): Promise<{ entities: EntityRecord[]; relationships: RelationshipRecord[] }> {
     const session = this.driver.session({ defaultAccessMode: "READ" });
     const depth = params.depth ?? 2;
+    const label = sanitizeLabel(params.typeName);
+
     try {
       const result = await session.executeRead((tx) =>
         tx.run(
           `
-MATCH (start:Entity {orgId: $orgId, entityId: $entityId})
+MATCH (start:${label} {orgId: $orgId, entityId: $entityId})
 CALL {
   WITH start
-  MATCH path = (start)-[:RELATES_TO*1..${depth}]-(related:Entity {orgId: $orgId})
+  MATCH path = (start)-[*1..${depth}]-(related {orgId: $orgId})
+  WHERE related.entityId IS NOT NULL
   RETURN related, relationships(path) AS rels
 }
 RETURN collect(DISTINCT related) AS entities, collect(DISTINCT rels) AS allRels
@@ -416,14 +523,15 @@ RETURN collect(DISTINCT related) AS entities, collect(DISTINCT rels) AS allRels
       if (result.records.length > 0) {
         const record = result.records[0];
         const entityNodes = record.get("entities") ?? [];
-        
+
         for (const node of entityNodes) {
           if (node && node.properties) {
             const e = node.properties;
+            const labels = node.labels?.filter((l: string) => l !== "Entity") ?? [];
             entities.push({
               orgId: e.orgId,
               entityId: e.entityId,
-              typeName: e.typeName,
+              typeName: labels[0] ?? "Unknown",
               name: e.name,
               properties: e.properties ? JSON.parse(e.properties) : {},
               createdAt: e.createdAt?.toString() ?? "",
@@ -446,57 +554,70 @@ RETURN collect(DISTINCT related) AS entities, collect(DISTINCT rels) AS allRels
   async mergeEntities(params: {
     orgId: string;
     sourceEntityId: string;
+    sourceTypeName: string;
     targetEntityId: string;
+    targetTypeName: string;
   }): Promise<void> {
     const session = this.driver.session({ defaultAccessMode: "WRITE" });
+    const sourceLabel = sanitizeLabel(params.sourceTypeName);
+    const targetLabel = sanitizeLabel(params.targetTypeName);
+
     try {
       await session.executeWrite(async (tx) => {
         // Move all outgoing relationships from source to target
         await tx.run(
           `
-MATCH (source:Entity {orgId: $orgId, entityId: $sourceEntityId})
-MATCH (target:Entity {orgId: $orgId, entityId: $targetEntityId})
-MATCH (source)-[r:RELATES_TO]->(other)
-MERGE (target)-[newR:RELATES_TO {relationshipType: r.relationshipType}]->(other)
-  ON CREATE SET newR = properties(r)
-DELETE r
+MATCH (source:${sourceLabel} {orgId: $orgId, entityId: $sourceEntityId})
+MATCH (target:${targetLabel} {orgId: $orgId, entityId: $targetEntityId})
+MATCH (source)-[r]->(other)
+WHERE r.relationshipId IS NOT NULL
+WITH source, target, other, type(r) AS relType, properties(r) AS relProps
+CALL {
+  WITH target, other, relType, relProps
+  MERGE (target)-[newR:RELATES_TO]->(other)
+  SET newR = relProps
+}
           `,
-          params
+          { orgId: params.orgId, sourceEntityId: params.sourceEntityId, targetEntityId: params.targetEntityId }
         );
 
         // Move all incoming relationships from source to target
         await tx.run(
           `
-MATCH (source:Entity {orgId: $orgId, entityId: $sourceEntityId})
-MATCH (target:Entity {orgId: $orgId, entityId: $targetEntityId})
-MATCH (other)-[r:RELATES_TO]->(source)
-MERGE (other)-[newR:RELATES_TO {relationshipType: r.relationshipType}]->(target)
-  ON CREATE SET newR = properties(r)
-DELETE r
+MATCH (source:${sourceLabel} {orgId: $orgId, entityId: $sourceEntityId})
+MATCH (target:${targetLabel} {orgId: $orgId, entityId: $targetEntityId})
+MATCH (other)-[r]->(source)
+WHERE r.relationshipId IS NOT NULL
+WITH source, target, other, type(r) AS relType, properties(r) AS relProps
+CALL {
+  WITH target, other, relType, relProps
+  MERGE (other)-[newR:RELATES_TO]->(target)
+  SET newR = relProps
+}
           `,
-          params
+          { orgId: params.orgId, sourceEntityId: params.sourceEntityId, targetEntityId: params.targetEntityId }
         );
 
         // Move file extraction links
         await tx.run(
           `
-MATCH (source:Entity {orgId: $orgId, entityId: $sourceEntityId})
-MATCH (target:Entity {orgId: $orgId, entityId: $targetEntityId})
+MATCH (source:${sourceLabel} {orgId: $orgId, entityId: $sourceEntityId})
+MATCH (target:${targetLabel} {orgId: $orgId, entityId: $targetEntityId})
 MATCH (source)-[r:EXTRACTED_FROM]->(f:File)
 MERGE (target)-[newR:EXTRACTED_FROM]->(f)
   ON CREATE SET newR = properties(r)
 DELETE r
           `,
-          params
+          { orgId: params.orgId, sourceEntityId: params.sourceEntityId, targetEntityId: params.targetEntityId }
         );
 
         // Delete source entity
         await tx.run(
           `
-MATCH (source:Entity {orgId: $orgId, entityId: $sourceEntityId})
+MATCH (source:${sourceLabel} {orgId: $orgId, entityId: $sourceEntityId})
 DETACH DELETE source
           `,
-          params
+          { orgId: params.orgId, sourceEntityId: params.sourceEntityId }
         );
       });
     } finally {

@@ -224,7 +224,9 @@ export type FileViewEntity = {
 
 export type FileViewRelationship = {
   relationshipId: string;
+  fromTypeName: string;
   fromName: string;
+  toTypeName: string;
   toName: string;
   relationshipType: string;
   properties: Record<string, unknown>;
@@ -516,26 +518,36 @@ export function FileViewScreen(props: {
                 <div className="text-sm text-[var(--muted)]">No relationships extracted yet.</div>
               ) : (
                 <div className="space-y-2">
-                  {props.relationships.map((r) => (
-                    <div
-                      key={r.relationshipId}
-                      className="rounded-lg border border-[color:var(--border)] bg-[var(--surface-2)] px-3 py-2"
-                    >
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="font-medium text-[var(--foreground)]">{r.fromName}</span>
-                        <svg className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                        </svg>
-                        <span className="rounded-full bg-[var(--accent)]/10 px-2 py-0.5 text-xs font-medium text-[var(--accent)]">
-                          {r.relationshipType}
-                        </span>
-                        <svg className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                        </svg>
-                        <span className="font-medium text-[var(--foreground)]">{r.toName}</span>
+                  {props.relationships.map((r) => {
+                    const fromColor = getEntityTypeColor(r.fromTypeName);
+                    const toColor = getEntityTypeColor(r.toTypeName);
+                    return (
+                      <div
+                        key={r.relationshipId}
+                        className="rounded-lg border border-[color:var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                      >
+                        <div className="flex items-center gap-2 text-sm flex-wrap">
+                          <span className={`rounded-md border px-2 py-0.5 text-xs font-medium ${fromColor.bg} ${fromColor.text} ${fromColor.border}`}>
+                            {r.fromTypeName}
+                          </span>
+                          <span className="font-medium text-[var(--foreground)]">{r.fromName}</span>
+                          <svg className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                          </svg>
+                          <span className="rounded-full bg-[var(--accent)]/10 px-2 py-0.5 text-xs font-medium text-[var(--accent)]">
+                            {r.relationshipType}
+                          </span>
+                          <svg className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                          </svg>
+                          <span className={`rounded-md border px-2 py-0.5 text-xs font-medium ${toColor.bg} ${toColor.text} ${toColor.border}`}>
+                            {r.toTypeName}
+                          </span>
+                          <span className="font-medium text-[var(--foreground)]">{r.toName}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

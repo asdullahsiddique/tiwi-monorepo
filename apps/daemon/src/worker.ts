@@ -1,5 +1,6 @@
 import { Worker } from "bullmq";
 import { createNeo4jDriver, ensureNeo4jSchema, FileRepository, LogRepository } from "@tiwi/neo4j";
+import { configureLangSmith } from "@tiwi/enrichment";
 import { nanoid } from "nanoid";
 import { ZodError } from "zod";
 import { getDaemonEnv } from "./env";
@@ -23,6 +24,9 @@ function formatErrorMessage(err: unknown): string {
 
 export async function startWorker(): Promise<void> {
   const { REDIS_URL } = getDaemonEnv();
+
+  // Configure LangSmith tracing if enabled
+  configureLangSmith();
 
   const driver = createNeo4jDriver();
   await ensureNeo4jSchema(driver);

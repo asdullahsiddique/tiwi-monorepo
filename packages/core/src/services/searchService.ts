@@ -121,6 +121,7 @@ async function buildGraphContext(params: {
     const related = await params.entityRepo.getRelatedEntities({
       orgId: params.orgId,
       entityId: match.entityId,
+      typeName: match.typeName,
       depth: 2,
     });
 

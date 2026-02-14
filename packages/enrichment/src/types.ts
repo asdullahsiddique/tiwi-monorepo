@@ -14,12 +14,20 @@ export const ExtractedEntitySchema = z.object({
 export type ExtractedEntity = z.infer<typeof ExtractedEntitySchema>;
 
 export const ExtractedRelationshipSchema = z.object({
-  from: z.string().min(1),
-  to: z.string().min(1),
+  fromTypeName: z.string().min(1).max(64),
+  fromName: z.string().min(1),
+  toTypeName: z.string().min(1).max(64),
+  toName: z.string().min(1),
   relationshipType: z.string().min(1).max(64),
   properties: z.record(z.string(), z.unknown()).optional(),
 });
 export type ExtractedRelationship = z.infer<typeof ExtractedRelationshipSchema>;
+
+export const ProposedTypeSchema = z.object({
+  typeName: z.string().min(1).max(64),
+  description: z.string().min(1).max(500),
+});
+export type ProposedType = z.infer<typeof ProposedTypeSchema>;
 
 export type AICallUsage = {
   model: string;
@@ -70,19 +78,20 @@ export type EnrichmentContext = {
  */
 export type ResolvedMatch = {
   extractedName: string;
+  extractedTypeName: string;
   matchedExistingEntityId: string;
   matchedExistingName: string;
+  matchedExistingTypeName: string;
   confidence: number;
   reason: string;
 };
 
 export type EnrichmentResult = {
-  createdTypes: Array<{ typeName: string; description: string }>;
+  createdTypes: ProposedType[];
   entities: ExtractedEntity[];
   relationships: ExtractedRelationship[];
   aiCalls: AICallUsage[];
   decisions: DecisionLog[];
-  // Entity resolution results
   resolvedMatches: ResolvedMatch[];
 };
 

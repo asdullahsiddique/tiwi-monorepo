@@ -20,7 +20,9 @@ export type FileViewEntity = {
 
 export type FileViewRelationship = {
   relationshipId: string;
+  fromTypeName: string;
   fromName: string;
+  toTypeName: string;
   toName: string;
   relationshipType: string;
   properties: Record<string, unknown>;
@@ -95,7 +97,9 @@ export async function getFileView(params: {
 
   const relationships: FileViewRelationship[] = relationshipsRaw.map((r) => ({
     relationshipId: r.relationshipId,
+    fromTypeName: r.fromTypeName,
     fromName: r.fromName,
+    toTypeName: r.toTypeName,
     toName: r.toName,
     relationshipType: r.relationshipType,
     properties: r.properties,

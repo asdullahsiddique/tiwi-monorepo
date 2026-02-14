@@ -7,6 +7,13 @@ const DaemonEnvSchema = z.object({
   OPENAI_SUMMARIZATION_MODEL: z.string().min(1).default("gpt-4o-mini"),
   OPENAI_PRICE_INPUT_PER_1M_USD: z.coerce.number().nonnegative().default(0),
   OPENAI_PRICE_OUTPUT_PER_1M_USD: z.coerce.number().nonnegative().default(0),
+  
+  // LangSmith (optional - for LangGraph observability)
+  // Supports both LANGSMITH_* (newer) and LANGCHAIN_* (older) naming
+  LANGSMITH_TRACING: z.string().optional(),
+  LANGSMITH_API_KEY: z.string().optional(),
+  LANGSMITH_ENDPOINT: z.string().optional(),
+  LANGSMITH_PROJECT: z.string().optional(),
 });
 
 export type DaemonEnv = z.infer<typeof DaemonEnvSchema>;

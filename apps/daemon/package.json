@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",
-    "@tiwi/langgraph": "workspace:*",
+    "@tiwi/enrichment": "workspace:*",
     "@tiwi/neo4j": "workspace:*",
     "@tiwi/shared": "workspace:*",
     "@tiwi/storage": "workspace:*",

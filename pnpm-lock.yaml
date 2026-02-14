@@ -13,9 +13,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.888.0
         version: 3.990.0
-      '@tiwi/langgraph':
+      '@tiwi/enrichment':
         specifier: workspace:*
-        version: link:../../packages/langgraph
+        version: link:../../packages/enrichment
       '@tiwi/neo4j':
         specifier: workspace:*
         version: link:../../packages/neo4j
@@ -149,7 +149,7 @@ importers:
         specifier: ^5
         version: 5.9.3
 
-  packages/langgraph:
+  packages/enrichment:
     dependencies:
       '@tiwi/shared':
         specifier: workspace:*

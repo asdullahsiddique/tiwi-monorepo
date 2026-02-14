@@ -13,7 +13,7 @@ import {
   seedEntityTypes,
 } from "@tiwi/neo4j";
 import { createS3Client } from "@tiwi/storage";
-import { runFileEnrichment } from "@tiwi/langgraph";
+import { runFileEnrichment } from "@tiwi/enrichment";
 import { getDaemonEnv } from "../env";
 import type { ProcessFileV1Payload } from "../jobs/types";
 

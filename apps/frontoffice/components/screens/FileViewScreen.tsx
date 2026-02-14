@@ -233,22 +233,50 @@ export type FileViewRelationship = {
   properties: Record<string, unknown>;
 };
 
-// Entity type color palette
-const ENTITY_TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  Person: { bg: "bg-purple-500/10", text: "text-purple-600", border: "border-purple-500/30" },
-  Organization: { bg: "bg-blue-500/10", text: "text-blue-600", border: "border-blue-500/30" },
-  Location: { bg: "bg-emerald-500/10", text: "text-emerald-600", border: "border-emerald-500/30" },
-  Money: { bg: "bg-amber-500/10", text: "text-amber-600", border: "border-amber-500/30" },
-  Invoice: { bg: "bg-rose-500/10", text: "text-rose-600", border: "border-rose-500/30" },
-  Date: { bg: "bg-cyan-500/10", text: "text-cyan-600", border: "border-cyan-500/30" },
-  Product: { bg: "bg-orange-500/10", text: "text-orange-600", border: "border-orange-500/30" },
-  Service: { bg: "bg-indigo-500/10", text: "text-indigo-600", border: "border-indigo-500/30" },
-  Project: { bg: "bg-teal-500/10", text: "text-teal-600", border: "border-teal-500/30" },
-  Event: { bg: "bg-pink-500/10", text: "text-pink-600", border: "border-pink-500/30" },
-};
+// Tailwind color classes for deterministic entity type colors
+const TAILWIND_COLOR_CLASSES = [
+  { bg: "bg-blue-500/10", text: "text-blue-600", border: "border-blue-500/30" },
+  { bg: "bg-emerald-500/10", text: "text-emerald-600", border: "border-emerald-500/30" },
+  { bg: "bg-amber-500/10", text: "text-amber-600", border: "border-amber-500/30" },
+  { bg: "bg-red-500/10", text: "text-red-600", border: "border-red-500/30" },
+  { bg: "bg-violet-500/10", text: "text-violet-600", border: "border-violet-500/30" },
+  { bg: "bg-pink-500/10", text: "text-pink-600", border: "border-pink-500/30" },
+  { bg: "bg-cyan-500/10", text: "text-cyan-600", border: "border-cyan-500/30" },
+  { bg: "bg-orange-500/10", text: "text-orange-600", border: "border-orange-500/30" },
+  { bg: "bg-indigo-500/10", text: "text-indigo-600", border: "border-indigo-500/30" },
+  { bg: "bg-teal-500/10", text: "text-teal-600", border: "border-teal-500/30" },
+  { bg: "bg-lime-500/10", text: "text-lime-600", border: "border-lime-500/30" },
+  { bg: "bg-purple-500/10", text: "text-purple-600", border: "border-purple-500/30" },
+  { bg: "bg-green-500/10", text: "text-green-600", border: "border-green-500/30" },
+  { bg: "bg-yellow-500/10", text: "text-yellow-600", border: "border-yellow-500/30" },
+  { bg: "bg-sky-500/10", text: "text-sky-600", border: "border-sky-500/30" },
+  { bg: "bg-fuchsia-500/10", text: "text-fuchsia-600", border: "border-fuchsia-500/30" },
+  { bg: "bg-rose-500/10", text: "text-rose-600", border: "border-rose-500/30" },
+  { bg: "bg-slate-500/10", text: "text-slate-600", border: "border-slate-500/30" },
+];
 
+/**
+ * Simple hash function for strings.
+ * Returns a consistent number for the same input string.
+ */
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * Get deterministic color classes for an entity type.
+ * Same type name will always produce the same color.
+ */
 function getEntityTypeColor(typeName: string) {
-  return ENTITY_TYPE_COLORS[typeName] ?? { bg: "bg-slate-500/10", text: "text-slate-600", border: "border-slate-500/30" };
+  const hash = hashString(typeName);
+  const index = hash % TAILWIND_COLOR_CLASSES.length;
+  return TAILWIND_COLOR_CLASSES[index];
 }
 
 export function FileViewScreen(props: {

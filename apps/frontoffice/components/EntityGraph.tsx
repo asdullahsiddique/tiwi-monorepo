@@ -32,28 +32,50 @@ export type GraphRelationship = {
   relationshipType: string;
 };
 
-// Color palette for entity types (hex values for canvas drawing)
-const TYPE_COLORS: Record<string, string> = {
-  E_Person: "#8b5cf6",        // violet
-  E_Organization: "#3b82f6",  // blue
-  E_Location: "#10b981",      // emerald
-  E_Money: "#f59e0b",         // amber
-  E_Invoice: "#ef4444",       // red
-  E_Date: "#06b6d4",          // cyan
-  E_Product: "#f97316",       // orange
-  E_Service: "#6366f1",       // indigo
-  E_Project: "#14b8a6",       // teal
-  E_Event: "#ec4899",         // pink
-  E_Account: "#a855f7",       // purple
-  E_Document: "#64748b",      // slate
-  E_BankAccount: "#22c55e",   // green
-  E_Address: "#eab308",       // yellow
-  E_PhoneNumber: "#78716c",   // stone
-  E_Deadline: "#dc2626",      // red-600
-};
+// Nice color palette for deterministic color assignment
+const COLOR_PALETTE = [
+  "#3b82f6", // blue
+  "#10b981", // emerald
+  "#f59e0b", // amber
+  "#ef4444", // red
+  "#8b5cf6", // violet
+  "#ec4899", // pink
+  "#06b6d4", // cyan
+  "#f97316", // orange
+  "#6366f1", // indigo
+  "#14b8a6", // teal
+  "#84cc16", // lime
+  "#a855f7", // purple
+  "#22c55e", // green
+  "#eab308", // yellow
+  "#0ea5e9", // sky
+  "#d946ef", // fuchsia
+  "#f43f5e", // rose
+  "#64748b", // slate
+];
 
+/**
+ * Simple hash function for strings.
+ * Returns a consistent number for the same input string.
+ */
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * Get a deterministic color for an entity type.
+ * Same type name will always produce the same color.
+ */
 function getTypeColor(typeName: string): string {
-  return TYPE_COLORS[typeName] ?? "#6b7280"; // default gray
+  const hash = hashString(typeName);
+  const index = hash % COLOR_PALETTE.length;
+  return COLOR_PALETTE[index];
 }
 
 // Strip E_ prefix for display

@@ -8,5 +8,6 @@ export * from "./repositories/typeRegistryRepo";
 export * from "./repositories/embeddingRepo";
 export * from "./repositories/artifactRepo";
 export * from "./repositories/entityRepo";
+export * from "./repositories/searchHistoryRepo";
 export * from "./seed/entityTypes";
 

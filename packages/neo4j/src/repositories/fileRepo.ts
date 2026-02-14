@@ -1,4 +1,5 @@
 import type { Driver } from "neo4j-driver";
+import neo4j from "neo4j-driver";
 
 export type FileStatus =
   | "UPLOADING"
@@ -38,6 +39,7 @@ export class FileRepository {
     const session = this.driver.session({ defaultAccessMode: "WRITE" });
     try {
       await session.executeWrite(async (tx) => {
+        // Upsert file node
         await tx.run(
           `
 MERGE (f:File {orgId: $orgId, fileId: $fileId})
@@ -56,7 +58,7 @@ SET
           { ...params, sizeBytes: params.sizeBytes ?? null },
         );
 
-        // Ensure tenancy anchors exist
+        // Ensure org and user exist, then link file (MATCH the file, don't MERGE it again)
         await tx.run(
           `
 MERGE (o:Organization {orgId: $orgId})
@@ -66,7 +68,9 @@ MERGE (u:User {orgId: $orgId, userId: $userId})
   ON CREATE SET u.createdAt = datetime(), u.updatedAt = datetime()
   ON MATCH SET u.updatedAt = datetime()
 MERGE (u)-[:MEMBER_OF]->(o)
-MERGE (o)-[:OWNS_FILE]->(f:File {orgId: $orgId, fileId: $fileId})
+WITH o
+MATCH (f:File {orgId: $orgId, fileId: $fileId})
+MERGE (o)-[:OWNS_FILE]->(f)
           `,
           { orgId: params.orgId, userId: params.userId, fileId: params.fileId },
         );
@@ -105,7 +109,10 @@ SET f.status = $status,
     }
   }
 
-  async getFile(params: { orgId: string; fileId: string }): Promise<FileRecord | null> {
+  async getFile(params: {
+    orgId: string;
+    fileId: string;
+  }): Promise<FileRecord | null> {
     const session = this.driver.session({ defaultAccessMode: "READ" });
     try {
       const res = await session.executeRead(async (tx) => {
@@ -139,7 +146,11 @@ RETURN f
     }
   }
 
-  async listFiles(params: { orgId: string; limit: number; offset: number }): Promise<FileRecord[]> {
+  async listFiles(params: {
+    orgId: string;
+    limit: number;
+    offset: number;
+  }): Promise<FileRecord[]> {
     const session = this.driver.session({ defaultAccessMode: "READ" });
     try {
       const res = await session.executeRead(async (tx) => {
@@ -151,7 +162,11 @@ ORDER BY f.createdAt DESC
 SKIP $offset
 LIMIT $limit
           `,
-          params,
+          {
+            orgId: params.orgId,
+            offset: neo4j.int(params.offset),
+            limit: neo4j.int(params.limit),
+          },
         );
       });
 
@@ -177,7 +192,10 @@ LIMIT $limit
     }
   }
 
-  async getFilesByIds(params: { orgId: string; fileIds: string[] }): Promise<FileRecord[]> {
+  async getFilesByIds(params: {
+    orgId: string;
+    fileIds: string[];
+  }): Promise<FileRecord[]> {
     if (params.fileIds.length === 0) return [];
     const session = this.driver.session({ defaultAccessMode: "READ" });
     try {
@@ -214,4 +232,3 @@ RETURN f
     }
   }
 }
-

@@ -3,12 +3,9 @@ services:
     image: neo4j:5.26
     environment:
       - NEO4J_AUTH=neo4j/neo4jpassword
-      - NEO4J_server_memory_pagecache_size=512M
-      - NEO4J_server_memory_heap_initial__size=512M
-      - NEO4J_server_memory_heap_max__size=512M
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
     volumes:
       - neo4j_data:/data
 
@@ -32,12 +29,15 @@ services:
       - minio_data:/data
 
   minio_init:
-    image: minio/mc:RELEASE.2025-01-17T23-04-49Z
+    image: minio/mc:latest
     depends_on:
       - minio
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadminpassword;
+      until mc alias set local http://minio:9000 minioadmin minioadminpassword; do
+        echo 'waiting for minio...';
+        sleep 1;
+      done;
       mc mb --ignore-existing local/tiwi;
       mc anonymous set download local/tiwi;
       exit 0;
@@ -47,4 +47,3 @@ volumes:
   neo4j_data:
   redis_data:
   minio_data:
-

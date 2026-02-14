@@ -1,4 +1,5 @@
 import type { Driver } from "neo4j-driver";
+import neo4j from "neo4j-driver";
 
 export type ProcessingLogRecord = {
   logId: string;
@@ -50,7 +51,7 @@ MERGE (f)-[:HAS_PROCESSING_LOG]->(l)
           `,
           {
             ...params,
-            metadata: params.metadata ?? null,
+            metadata: params.metadata ? JSON.stringify(params.metadata) : null,
           },
         );
       });
@@ -95,7 +96,11 @@ FOREACH (_ IN CASE WHEN f IS NULL THEN [] ELSE [1] END |
   MERGE (f)-[:HAS_AI_LOG]->(l)
 )
           `,
-          { ...params, fileId: params.fileId ?? null, metadata: params.metadata ?? null },
+          {
+            ...params,
+            fileId: params.fileId ?? null,
+            metadata: params.metadata ? JSON.stringify(params.metadata) : null,
+          },
         );
       });
     } finally {
@@ -120,7 +125,12 @@ ORDER BY l.createdAt DESC
 SKIP $offset
 LIMIT $limit
           `,
-          params,
+          {
+            orgId: params.orgId,
+            fileId: params.fileId,
+            offset: neo4j.int(params.offset),
+            limit: neo4j.int(params.limit),
+          },
         ),
       );
 
@@ -132,7 +142,7 @@ LIMIT $limit
           level: p.level,
           message: p.message,
           createdAt: p.createdAt?.toString?.() ?? String(p.createdAt),
-          metadata: p.metadata ?? undefined,
+          metadata: p.metadata ? JSON.parse(p.metadata) : undefined,
         };
       });
     } finally {
@@ -157,7 +167,12 @@ ORDER BY l.createdAt DESC
 SKIP $offset
 LIMIT $limit
           `,
-          params,
+          {
+            orgId: params.orgId,
+            fileId: params.fileId,
+            offset: neo4j.int(params.offset),
+            limit: neo4j.int(params.limit),
+          },
         ),
       );
 
@@ -173,7 +188,7 @@ LIMIT $limit
           costUsd: p.costUsd ?? 0,
           purpose: p.purpose,
           createdAt: p.createdAt?.toString?.() ?? String(p.createdAt),
-          metadata: p.metadata ?? undefined,
+          metadata: p.metadata ? JSON.parse(p.metadata) : undefined,
         };
       });
     } finally {
@@ -181,4 +196,3 @@ LIMIT $limit
     }
   }
 }
-

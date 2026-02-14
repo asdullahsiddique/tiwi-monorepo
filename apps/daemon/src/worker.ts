@@ -1,9 +1,25 @@
 import { Worker } from "bullmq";
 import { createNeo4jDriver, ensureNeo4jSchema, FileRepository, LogRepository } from "@tiwi/neo4j";
 import { nanoid } from "nanoid";
+import { ZodError } from "zod";
 import { getDaemonEnv } from "./env";
 import { JOB_PROCESS_FILE_V1, ProcessFileV1Payload, QUEUE_NAME } from "./jobs/types";
 import { processFileV1 } from "./processors/processFileV1";
+
+function formatErrorMessage(err: unknown): string {
+  if (err instanceof ZodError) {
+    // Format Zod validation errors in a readable way
+    const issues = err.issues.map((issue) => {
+      const path = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
+      return `${path}${issue.message}`;
+    });
+    return `Validation error: ${issues.join("; ")}`;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return String(err);
+}
 
 export async function startWorker(): Promise<void> {
   const { REDIS_URL } = getDaemonEnv();
@@ -30,16 +46,42 @@ export async function startWorker(): Promise<void> {
         metadata: { jobId: job.id, name: job.name },
       });
 
-      await processFileV1(job.data);
+      try {
+        await processFileV1(job.data);
 
-      await logRepo.appendProcessingLog({
-        orgId,
-        fileId,
-        logId: nanoid(),
-        level: "INFO",
-        message: "Processing pipeline complete",
-      });
-      await fileRepo.updateStatus({ orgId, fileId, status: "PROCESSED" });
+        await logRepo.appendProcessingLog({
+          orgId,
+          fileId,
+          logId: nanoid(),
+          level: "INFO",
+          message: "Processing pipeline complete",
+        });
+        await fileRepo.updateStatus({ orgId, fileId, status: "PROCESSED" });
+      } catch (err) {
+        const errorMessage = formatErrorMessage(err);
+        const errorStack = err instanceof Error ? err.stack : undefined;
+        const errorDetails = err instanceof ZodError 
+          ? { zodIssues: err.issues } 
+          : undefined;
+        
+        await logRepo.appendProcessingLog({
+          orgId,
+          fileId,
+          logId: nanoid(),
+          level: "ERROR",
+          message: `Processing failed: ${errorMessage}`,
+          metadata: { stack: errorStack, jobId: job.id, ...errorDetails },
+        });
+        await fileRepo.updateStatus({ 
+          orgId, 
+          fileId, 
+          status: "FAILED", 
+          failureReason: errorMessage 
+        });
+        
+        // Re-throw so BullMQ also records the failure
+        throw err;
+      }
     },
     {
       connection: { url: REDIS_URL },
@@ -51,14 +93,19 @@ export async function startWorker(): Promise<void> {
     const orgId = (job?.data as any)?.orgId;
     const fileId = (job?.data as any)?.fileId;
     if (orgId && fileId) {
-      await fileRepo.updateStatus({ orgId, fileId, status: "FAILED", failureReason: err.message });
+      const errorMessage = formatErrorMessage(err);
+      const errorDetails = err instanceof ZodError 
+        ? { zodIssues: err.issues } 
+        : undefined;
+      
+      await fileRepo.updateStatus({ orgId, fileId, status: "FAILED", failureReason: errorMessage });
       await logRepo.appendProcessingLog({
         orgId,
         fileId,
         logId: nanoid(),
         level: "ERROR",
-        message: "Job failed",
-        metadata: { error: err.message, stack: err.stack, jobId: job?.id },
+        message: `Job failed: ${errorMessage}`,
+        metadata: { stack: err.stack, jobId: job?.id, ...errorDetails },
       });
     }
   });

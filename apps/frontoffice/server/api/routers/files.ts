@@ -1,6 +1,6 @@
 import { router, procedure } from "../trpc";
 import { z } from "zod";
-import { commitUpload, getFile, getFileView, listFiles, requestUpload } from "@tiwi/core";
+import { commitUpload, getFile, getFileView, listFiles, requestUpload, reprocessFile } from "@tiwi/core";
 
 export const filesRouter = router({
   requestUpload: procedure
@@ -70,6 +70,16 @@ export const filesRouter = router({
     .input(z.object({ fileId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       return getFileView({ orgId: ctx.orgId, fileId: input.fileId, logsLimit: 100 });
+    }),
+
+  reprocess: procedure
+    .input(z.object({ fileId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      return reprocessFile({
+        orgId: ctx.orgId,
+        userId: ctx.userId,
+        fileId: input.fileId,
+      });
     }),
 });
 

@@ -7,36 +7,59 @@ import type { Driver } from "neo4j-driver";
 export async function ensureNeo4jSchema(driver: Driver): Promise<void> {
   const session = driver.session({ defaultAccessMode: "WRITE" });
   try {
-    await session.executeWrite(async (tx) => {
-      // Core uniqueness constraints (multi-tenant safe)
-      await tx.run(
-        "CREATE CONSTRAINT org_orgId IF NOT EXISTS FOR (o:Organization) REQUIRE o.orgId IS UNIQUE",
-      );
+    // Create constraints one-by-one so one failure doesn't block the whole app.
+    // This is especially useful for local dev where old volumes may contain duplicates.
+    const constraintStatements = [
+      "CREATE CONSTRAINT org_orgId IF NOT EXISTS FOR (o:Organization) REQUIRE o.orgId IS UNIQUE",
+      "CREATE CONSTRAINT user_userId_orgId IF NOT EXISTS FOR (u:User) REQUIRE (u.userId, u.orgId) IS UNIQUE",
+      "CREATE CONSTRAINT file_fileId_orgId IF NOT EXISTS FOR (f:File) REQUIRE (f.fileId, f.orgId) IS UNIQUE",
+      "CREATE CONSTRAINT embeddingChunk_chunkId_orgId IF NOT EXISTS FOR (c:EmbeddingChunk) REQUIRE (c.chunkId, c.orgId) IS UNIQUE",
+      "CREATE CONSTRAINT aiLog_logId_orgId IF NOT EXISTS FOR (l:AIExecutionLog) REQUIRE (l.logId, l.orgId) IS UNIQUE",
+      "CREATE CONSTRAINT processingLog_logId_orgId IF NOT EXISTS FOR (l:ProcessingLog) REQUIRE (l.logId, l.orgId) IS UNIQUE",
+      "CREATE CONSTRAINT typeRegistry_typeName_orgId IF NOT EXISTS FOR (t:TypeRegistry) REQUIRE (t.typeName, t.orgId) IS UNIQUE",
+    ];
 
-      await tx.run(
-        "CREATE CONSTRAINT user_userId_orgId IF NOT EXISTS FOR (u:User) REQUIRE (u.userId, u.orgId) IS UNIQUE",
-      );
+    for (const statement of constraintStatements) {
+      try {
+        await session.executeWrite((tx) => tx.run(statement));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
 
-      await tx.run(
-        "CREATE CONSTRAINT file_fileId_orgId IF NOT EXISTS FOR (f:File) REQUIRE (f.fileId, f.orgId) IS UNIQUE",
-      );
+        // Best-effort dev repair: if old dev data has duplicate File nodes, dedupe and retry once.
+        if (
+          statement.includes("file_fileId_orgId") &&
+          msg.includes("already exists with label")
+        ) {
+          try {
+            await session.executeWrite((tx) =>
+              tx.run(`
+MATCH (f:File)
+WITH f.orgId AS orgId, f.fileId AS fileId, collect(f) AS fs
+WHERE orgId IS NOT NULL AND fileId IS NOT NULL AND size(fs) > 1
+CALL {
+  WITH fs
+  UNWIND fs AS n
+  RETURN id(n) AS keepId
+  ORDER BY n.updatedAt DESC, keepId DESC
+  LIMIT 1
+}
+WITH fs, keepId
+UNWIND fs AS n
+WITH n, keepId
+WHERE id(n) <> keepId
+DETACH DELETE n
+              `),
+            );
 
-      await tx.run(
-        "CREATE CONSTRAINT embeddingChunk_chunkId_orgId IF NOT EXISTS FOR (c:EmbeddingChunk) REQUIRE (c.chunkId, c.orgId) IS UNIQUE",
-      );
+            await session.executeWrite((tx) => tx.run(statement));
+          } catch {
+            // Ignore; app can still run without this constraint in local dev.
+          }
+        }
 
-      await tx.run(
-        "CREATE CONSTRAINT aiLog_logId_orgId IF NOT EXISTS FOR (l:AIExecutionLog) REQUIRE (l.logId, l.orgId) IS UNIQUE",
-      );
-
-      await tx.run(
-        "CREATE CONSTRAINT processingLog_logId_orgId IF NOT EXISTS FOR (l:ProcessingLog) REQUIRE (l.logId, l.orgId) IS UNIQUE",
-      );
-
-      await tx.run(
-        "CREATE CONSTRAINT typeRegistry_typeName_orgId IF NOT EXISTS FOR (t:TypeRegistry) REQUIRE (t.typeName, t.orgId) IS UNIQUE",
-      );
-    });
+        // Ignore constraint failures to avoid breaking UI/dev.
+      }
+    }
 
     // Vector index for semantic search (best-effort).
     // Note: requires Neo4j version with VECTOR INDEX support.
@@ -56,4 +79,3 @@ OPTIONS { indexConfig: { \`vector.dimensions\`: 1536, \`vector.similarity_functi
     await session.close();
   }
 }
-

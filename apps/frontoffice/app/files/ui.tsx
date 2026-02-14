@@ -3,7 +3,10 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/trpc";
-import { FileManagerScreen, type FileListItem } from "@/components/screens/FileManagerScreen";
+import {
+  FileManagerScreen,
+  type FileListItem,
+} from "@/components/screens/FileManagerScreen";
 
 export default function FilesClient() {
   const router = useRouter();
@@ -14,7 +17,8 @@ export default function FilesClient() {
   const requestUploadMutation = api.files.requestUpload.useMutation();
   const commitUploadMutation = api.files.commitUpload.useMutation();
 
-  const isUploading = requestUploadMutation.isPending || commitUploadMutation.isPending;
+  const isUploading =
+    requestUploadMutation.isPending || commitUploadMutation.isPending;
 
   const items: FileListItem[] = useMemo(() => {
     const raw = listQuery.data?.items ?? [];
@@ -77,11 +81,10 @@ export default function FilesClient() {
       <FileManagerScreen
         items={items}
         isUploading={isUploading}
-        error={error}
+        error={error ?? listQuery.error?.message ?? null}
         onPickFiles={() => fileInputRef.current?.click()}
         onOpenFile={(fileId) => router.push(`/files/${fileId}`)}
       />
     </>
   );
 }
-

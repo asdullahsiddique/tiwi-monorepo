@@ -1,0 +1,23 @@
+---
+description: Neo4j repositories are Cypher-only and org-scoped
+globs: packages/neo4j/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Neo4j repository boundaries
+
+## Repository responsibilities
+- All Cypher lives here (no Cypher anywhere else).
+- Every public repository method takes `orgId` explicitly.
+- Return typed domain records (from `packages/shared`).
+
+## Forbidden
+- Calling OpenAI or any AI provider
+- Reading/writing S3 objects
+- Queue enqueueing
+- HTTP calls
+
+## Tenancy enforcement
+- Every query must filter by `orgId`.
+- Every node written must include `orgId`.
+

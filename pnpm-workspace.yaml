@@ -1,0 +1,11 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Allow build/postinstall scripts for selected deps (pnpm v10 supply-chain controls).
+onlyBuiltDependencies:
+  - "@clerk/shared"
+  - esbuild
+  - msgpackr-extract
+  - sharp
+  - unrs-resolver

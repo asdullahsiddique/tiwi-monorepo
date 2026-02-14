@@ -1,0 +1,23 @@
+---
+description: Core non-negotiables for Media Intelligence Platform v1
+alwaysApply: true
+---
+
+# Core non-negotiables (v1)
+
+## Architecture & data
+- Neo4j is the primary memory (graph-first).
+- Everything is multi-tenant. Every write/query must be scoped by `orgId` (and `userId` where relevant). No cross-org visibility.
+- Embeddings are mandatory for semantic retrieval and must be linked back to the originating file/artifact.
+
+## AI & observability
+- Every AI call MUST be logged with: model, input tokens, output tokens, total tokens, cost estimate, timestamp, orgId, and fileId (if applicable).
+- AI calls must be configurable via environment variables (model selection, keys).
+
+## Development & infra
+- Local environment must run via `docker compose up` (no hidden cloud dependency for dev).
+- Local object storage uses MinIO (S3-compatible). Production/staging uses Cloudflare R2 via the same S3 client configuration.
+
+## Scope calls
+- MongoDB is not used in v1. Do not add Mongo-based persistence.
+

@@ -1,0 +1,43 @@
+.DS_Store
+
+# Environment files (never commit)
+.env
+.env.*
+!.env.example
+
+# Node / package managers
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Next.js
+.next/
+**/.next/
+out/
+**/out/
+
+# Builds
+dist/
+**/dist/
+build/
+**/build/
+
+# TypeScript
+*.tsbuildinfo
+
+# Tooling caches
+.turbo/
+.vercel/
+.eslintcache
+
+# IDE/editor
+.idea/
+.vscode/
+
+# Logs
+logs/
+*.log
+

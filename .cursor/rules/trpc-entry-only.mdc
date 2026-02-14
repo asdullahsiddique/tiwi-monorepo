@@ -1,0 +1,27 @@
+---
+description: tRPC is entry-only (hosted inside Next.js)
+globs: apps/frontoffice/{app/api/**,server/api/**}/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# tRPC entry-only rule
+
+Even though tRPC runs inside Next.js (`apps/frontoffice`), it must remain a thin entry layer.
+
+## Allowed in routers/route handlers
+- Auth + tenancy extraction (`userId`, `orgId`)
+- Input validation (Zod)
+- Calling service layer functions
+- Mapping service results to API outputs
+
+## Forbidden
+- Business logic / domain decisions
+- Cypher or Neo4j queries
+- Direct use of Neo4j driver
+- Direct OpenAI calls
+- Writing files / processing media
+
+## Pattern
+- `router -> service -> repository`
+- Routers must depend on services only.
+

@@ -1,0 +1,23 @@
+---
+description: Daemon processing contracts (idempotent jobs, statuses, logs)
+globs: apps/daemon/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Daemon processing contracts (v1)
+
+## Idempotency
+- Jobs must be idempotent by `(orgId, fileId)`.
+- Re-running a job must not create duplicate nodes/edges (use deterministic IDs or MERGE patterns).
+
+## Status lifecycle
+- Update file status in Neo4j with a clear lifecycle:
+  - `UPLOADING -> UPLOADED -> QUEUED -> PROCESSING -> PROCESSED | FAILED`
+
+## Logging
+- Every processing step logs:
+  - what happened
+  - timestamps
+  - errors with stack traces
+- Every AI call logs model/tokens/cost and references `orgId` and `fileId`.
+

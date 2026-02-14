@@ -1,0 +1,16 @@
+{
+  "name": "tiwi-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tiwi Media Intelligence Platform monorepo",
+  "scripts": {
+    "dev": "pnpm -r --filter \"./apps/**\" --parallel dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.29.3"
+}

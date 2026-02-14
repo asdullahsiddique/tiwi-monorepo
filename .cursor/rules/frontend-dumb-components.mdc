@@ -1,0 +1,31 @@
+---
+description: Frontoffice UI architecture (dumb components, pages compose)
+globs: apps/frontoffice/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Frontoffice UI architecture rules
+
+## Dumb components only
+- `components/**` are presentation-only.
+  - Accept props + callbacks.
+  - NO data fetching.
+  - NO calling tRPC/React Query.
+  - NO Clerk hooks.
+  - NO direct access to repositories/services.
+
+## Pages own data logic
+- `app/**/page.tsx` (and route-level layout components) may:
+  - call Clerk hooks
+  - call React Query hooks
+  - call tRPC client hooks
+  - assemble data + callbacks and pass them down to screen/components.
+
+## State management
+- Use native React context (`useContext`) for app-level UI state.
+- No Redux/Zustand/etc.
+
+## Folder conventions (recommended)
+- `components/ui/*`: primitives (buttons, inputs, dialogs) — pure UI.
+- `components/screens/*`: screen components — still dumb; pages inject props.
+

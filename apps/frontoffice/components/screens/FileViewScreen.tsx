@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { AIExecutionLogRecord, ProcessingLogRecord } from "@tiwi/neo4j";
+import { EntityGraph } from "../EntityGraph";
 
 type AILogSummary = {
   purpose: string;
@@ -362,6 +363,25 @@ export function FileViewScreen(props: {
               {props.summary ?? "No summary yet."}
             </div>
           </section>
+
+          {/* Knowledge Graph Visualization */}
+          {(props.entities.length > 0 || props.relationships.length > 0) && (
+            <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm font-medium">Knowledge Graph</div>
+                <div className="text-xs text-[var(--muted)]">
+                  {props.entities.length} entities · {props.relationships.length} relationships
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 overflow-hidden shadow-inner">
+                <EntityGraph
+                  entities={props.entities}
+                  relationships={props.relationships}
+                  height={500}
+                />
+              </div>
+            </section>
+          )}
 
           <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
             <div className="text-sm font-medium">Processing logs</div>

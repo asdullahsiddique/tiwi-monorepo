@@ -6,6 +6,7 @@ export type TypeRegistryRecord = {
   description: string;
   createdBy: string;
   createdAt: string;
+  isBuiltIn?: boolean;
 };
 
 export class TypeRegistryRepository {
@@ -32,6 +33,7 @@ RETURN t
         description: props.description,
         createdBy: props.createdBy,
         createdAt: props.createdAt?.toString?.() ?? String(props.createdAt),
+        isBuiltIn: props.isBuiltIn ?? false,
       };
     } finally {
       await session.close();
@@ -43,6 +45,7 @@ RETURN t
     typeName: string;
     description: string;
     createdBy: string;
+    isBuiltIn?: boolean;
   }): Promise<void> {
     const session = this.driver.session({ defaultAccessMode: "WRITE" });
     try {
@@ -53,14 +56,44 @@ MERGE (t:TypeRegistry {orgId: $orgId, typeName: $typeName})
   ON CREATE SET
     t.description = $description,
     t.createdBy = $createdBy,
+    t.isBuiltIn = $isBuiltIn,
     t.createdAt = datetime()
   ON MATCH SET
     t.description = coalesce(t.description, $description),
     t.createdBy = coalesce(t.createdBy, $createdBy)
           `,
+          { ...params, isBuiltIn: params.isBuiltIn ?? false },
+        ),
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async listTypes(params: { orgId: string }): Promise<TypeRegistryRecord[]> {
+    const session = this.driver.session({ defaultAccessMode: "READ" });
+    try {
+      const res = await session.executeRead((tx) =>
+        tx.run(
+          `
+MATCH (t:TypeRegistry {orgId: $orgId})
+RETURN t
+ORDER BY t.isBuiltIn DESC, t.typeName
+          `,
           params,
         ),
       );
+      return res.records.map((r) => {
+        const props = r.get("t").properties as any;
+        return {
+          orgId: props.orgId,
+          typeName: props.typeName,
+          description: props.description,
+          createdBy: props.createdBy,
+          createdAt: props.createdAt?.toString?.() ?? String(props.createdAt),
+          isBuiltIn: props.isBuiltIn ?? false,
+        };
+      });
     } finally {
       await session.close();
     }

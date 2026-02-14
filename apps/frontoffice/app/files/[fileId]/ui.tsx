@@ -59,6 +59,8 @@ export default function FileViewClient(props: { fileId: string }) {
       embeddingsMeta={(view.data as any)?.embeddingsMeta ?? { chunkCount: 0 }}
       processingLogs={(view.data as any)?.processingLogs ?? []}
       aiLogs={(view.data as any)?.aiLogs ?? []}
+      entities={(view.data as any)?.entities ?? []}
+      relationships={(view.data as any)?.relationships ?? []}
       onReprocess={handleReprocess}
       isReprocessing={reprocessMutation.isPending}
     />

@@ -5,8 +5,26 @@ import {
   ensureNeo4jSchema,
   FileRepository,
   LogRepository,
+  EntityRepository,
+  type EntityRecord,
+  type RelationshipRecord,
 } from "@tiwi/neo4j";
 import { createPresignedGetUrl } from "@tiwi/storage";
+
+export type FileViewEntity = {
+  entityId: string;
+  typeName: string;
+  name: string;
+  properties: Record<string, unknown>;
+};
+
+export type FileViewRelationship = {
+  relationshipId: string;
+  fromName: string;
+  toName: string;
+  relationshipType: string;
+  properties: Record<string, unknown>;
+};
 
 export async function getFileView(params: {
   orgId: string;
@@ -19,8 +37,8 @@ export async function getFileView(params: {
   processingLogs: Awaited<ReturnType<LogRepository["listProcessingLogs"]>>;
   aiLogs: Awaited<ReturnType<LogRepository["listAIExecutionLogs"]>>;
   embeddingsMeta: Awaited<ReturnType<EmbeddingRepository["getEmbeddingsMeta"]>>;
-  entities: Array<unknown>;
-  relationships: Array<unknown>;
+  entities: FileViewEntity[];
+  relationships: FileViewRelationship[];
 }> {
   const driver = getNeo4jDriver();
   await ensureNeo4jSchema(driver);
@@ -29,6 +47,7 @@ export async function getFileView(params: {
   const logRepo = new LogRepository(driver);
   const artifactRepo = new ArtifactRepository(driver);
   const embeddingRepo = new EmbeddingRepository(driver);
+  const entityRepo = new EntityRepository(driver);
 
   const file = await fileRepo.getFile({
     orgId: params.orgId,
@@ -57,6 +76,31 @@ export async function getFileView(params: {
     offset: 0,
   });
 
+  // Fetch entities and relationships extracted from this file
+  const entitiesRaw = await entityRepo.getEntitiesByFile({
+    orgId: params.orgId,
+    fileId: params.fileId,
+  });
+  const relationshipsRaw = await entityRepo.getRelationshipsByFile({
+    orgId: params.orgId,
+    fileId: params.fileId,
+  });
+
+  const entities: FileViewEntity[] = entitiesRaw.map((e) => ({
+    entityId: e.entityId,
+    typeName: e.typeName,
+    name: e.name,
+    properties: e.properties,
+  }));
+
+  const relationships: FileViewRelationship[] = relationshipsRaw.map((r) => ({
+    relationshipId: r.relationshipId,
+    fromName: r.fromName,
+    toName: r.toName,
+    relationshipType: r.relationshipType,
+    properties: r.properties,
+  }));
+
   const downloadUrl = file
     ? await createPresignedGetUrl({
         objectKey: file.objectKey,
@@ -71,7 +115,7 @@ export async function getFileView(params: {
     processingLogs,
     aiLogs,
     embeddingsMeta,
-    entities: [],
-    relationships: [],
+    entities,
+    relationships,
   };
 }

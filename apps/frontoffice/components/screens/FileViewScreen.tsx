@@ -131,7 +131,7 @@ function ProcessingLogDetailModal(props: {
         <div className="max-h-[60vh] overflow-y-auto p-6">
           <div className="text-sm font-medium">{props.log.message}</div>
           
-          {metadata?.error && (
+          {typeof metadata?.error !== "undefined" && metadata?.error !== null && (
             <div className="mt-4">
               <div className="text-xs font-medium text-[var(--muted-2)] uppercase tracking-wider">Error</div>
               <div className="mt-2 rounded-lg bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-700 font-mono">
@@ -140,7 +140,7 @@ function ProcessingLogDetailModal(props: {
             </div>
           )}
           
-          {metadata?.stack && (
+          {typeof metadata?.stack !== "undefined" && metadata?.stack !== null && (
             <div className="mt-4">
               <div className="text-xs font-medium text-[var(--muted-2)] uppercase tracking-wider">Stack trace</div>
               <pre className="mt-2 overflow-x-auto rounded-lg bg-[var(--surface-2)] p-3 text-xs font-mono text-[var(--muted)] whitespace-pre-wrap">
@@ -215,6 +215,39 @@ function AILogsModal(props: {
   );
 }
 
+export type FileViewEntity = {
+  entityId: string;
+  typeName: string;
+  name: string;
+  properties: Record<string, unknown>;
+};
+
+export type FileViewRelationship = {
+  relationshipId: string;
+  fromName: string;
+  toName: string;
+  relationshipType: string;
+  properties: Record<string, unknown>;
+};
+
+// Entity type color palette
+const ENTITY_TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  Person: { bg: "bg-purple-500/10", text: "text-purple-600", border: "border-purple-500/30" },
+  Organization: { bg: "bg-blue-500/10", text: "text-blue-600", border: "border-blue-500/30" },
+  Location: { bg: "bg-emerald-500/10", text: "text-emerald-600", border: "border-emerald-500/30" },
+  Money: { bg: "bg-amber-500/10", text: "text-amber-600", border: "border-amber-500/30" },
+  Invoice: { bg: "bg-rose-500/10", text: "text-rose-600", border: "border-rose-500/30" },
+  Date: { bg: "bg-cyan-500/10", text: "text-cyan-600", border: "border-cyan-500/30" },
+  Product: { bg: "bg-orange-500/10", text: "text-orange-600", border: "border-orange-500/30" },
+  Service: { bg: "bg-indigo-500/10", text: "text-indigo-600", border: "border-indigo-500/30" },
+  Project: { bg: "bg-teal-500/10", text: "text-teal-600", border: "border-teal-500/30" },
+  Event: { bg: "bg-pink-500/10", text: "text-pink-600", border: "border-pink-500/30" },
+};
+
+function getEntityTypeColor(typeName: string) {
+  return ENTITY_TYPE_COLORS[typeName] ?? { bg: "bg-slate-500/10", text: "text-slate-600", border: "border-slate-500/30" };
+}
+
 export function FileViewScreen(props: {
   title: string;
   status: string;
@@ -224,6 +257,8 @@ export function FileViewScreen(props: {
   embeddingsMeta: { chunkCount: number; model?: string };
   processingLogs: ProcessingLogRecord[];
   aiLogs: AIExecutionLogRecord[];
+  entities: FileViewEntity[];
+  relationships: FileViewRelationship[];
   onReprocess?: () => void;
   isReprocessing?: boolean;
 }) {
@@ -439,9 +474,70 @@ export function FileViewScreen(props: {
           )}
 
           <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
-            <div className="text-sm font-medium">Entities & relationships</div>
-            <div className="mt-3 text-sm text-[var(--muted)]">
-              Coming next: entity extraction + relationship graph view.
+            <div className="text-sm font-medium">Extracted Entities</div>
+            <div className="mt-3">
+              {props.entities.length === 0 ? (
+                <div className="text-sm text-[var(--muted)]">No entities extracted yet.</div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {props.entities.map((e) => {
+                    const color = getEntityTypeColor(e.typeName);
+                    return (
+                      <div
+                        key={e.entityId}
+                        className={`rounded-lg border px-3 py-2 ${color.bg} ${color.border}`}
+                      >
+                        <div className={`text-xs font-medium ${color.text}`}>
+                          {e.typeName}
+                        </div>
+                        <div className="mt-0.5 text-sm font-medium text-[var(--foreground)]">
+                          {e.name}
+                        </div>
+                        {Object.keys(e.properties).length > 0 && (
+                          <div className="mt-1 text-xs text-[var(--muted-2)]">
+                            {Object.entries(e.properties)
+                              .slice(0, 2)
+                              .map(([k, v]) => `${k}: ${String(v)}`)
+                              .join(", ")}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
+            <div className="text-sm font-medium">Relationships</div>
+            <div className="mt-3">
+              {props.relationships.length === 0 ? (
+                <div className="text-sm text-[var(--muted)]">No relationships extracted yet.</div>
+              ) : (
+                <div className="space-y-2">
+                  {props.relationships.map((r) => (
+                    <div
+                      key={r.relationshipId}
+                      className="rounded-lg border border-[color:var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                    >
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="font-medium text-[var(--foreground)]">{r.fromName}</span>
+                        <svg className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                        <span className="rounded-full bg-[var(--accent)]/10 px-2 py-0.5 text-xs font-medium text-[var(--accent)]">
+                          {r.relationshipType}
+                        </span>
+                        <svg className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                        <span className="font-medium text-[var(--foreground)]">{r.toName}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         </div>

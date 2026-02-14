@@ -17,6 +17,11 @@ export async function ensureNeo4jSchema(driver: Driver): Promise<void> {
       "CREATE CONSTRAINT aiLog_logId_orgId IF NOT EXISTS FOR (l:AIExecutionLog) REQUIRE (l.logId, l.orgId) IS UNIQUE",
       "CREATE CONSTRAINT processingLog_logId_orgId IF NOT EXISTS FOR (l:ProcessingLog) REQUIRE (l.logId, l.orgId) IS UNIQUE",
       "CREATE CONSTRAINT typeRegistry_typeName_orgId IF NOT EXISTS FOR (t:TypeRegistry) REQUIRE (t.typeName, t.orgId) IS UNIQUE",
+      // Entity constraints and indexes for context-aware knowledge graph
+      "CREATE CONSTRAINT entity_unique IF NOT EXISTS FOR (e:Entity) REQUIRE (e.orgId, e.typeName, e.nameLower) IS UNIQUE",
+      "CREATE INDEX entity_orgId IF NOT EXISTS FOR (e:Entity) ON (e.orgId)",
+      "CREATE INDEX entity_typeName IF NOT EXISTS FOR (e:Entity) ON (e.orgId, e.typeName)",
+      "CREATE INDEX entity_entityId IF NOT EXISTS FOR (e:Entity) ON (e.orgId, e.entityId)",
     ];
 
     for (const statement of constraintStatements) {

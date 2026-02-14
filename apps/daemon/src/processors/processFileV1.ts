@@ -9,6 +9,8 @@ import {
   FileRepository,
   LogRepository,
   TypeRegistryRepository,
+  EntityRepository,
+  seedEntityTypes,
 } from "@tiwi/neo4j";
 import { createS3Client } from "@tiwi/storage";
 import { runFileEnrichment } from "@tiwi/langgraph";
@@ -81,6 +83,10 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
     const artifactRepo = new ArtifactRepository(driver);
     const embeddingRepo = new EmbeddingRepository(driver);
     const typeRepo = new TypeRegistryRepository(driver);
+    const entityRepo = new EntityRepository(driver);
+
+    // Ensure built-in entity types are seeded
+    await seedEntityTypes({ typeRegistryRepo: typeRepo, orgId: payload.orgId });
 
     const file = await fileRepo.getFile({ orgId: payload.orgId, fileId: payload.fileId });
     if (!file) {
@@ -378,7 +384,23 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
       });
     }
 
-    // LangGraph enrichment (best-effort; returns empty if no key).
+    // Fetch existing context for entity resolution
+    const existingTypes = await entityRepo.getAllEntityTypes({ orgId: payload.orgId });
+    const existingEntities = await entityRepo.getEntitiesSummary({ orgId: payload.orgId, limit: 200 });
+
+    await logRepo.appendProcessingLog({
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      logId: nanoid(),
+      level: "INFO",
+      message: "Fetched context for entity resolution",
+      metadata: {
+        existingTypes: existingTypes.length,
+        existingEntities: existingEntities.length,
+      },
+    });
+
+    // LangGraph enrichment with context (best-effort; returns empty if no key).
     const enrichment = await runFileEnrichment({
       orgId: payload.orgId,
       userId: payload.userId,
@@ -398,6 +420,19 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
         createType: async ({ orgId, typeName, description, createdBy }) => {
           await typeRepo.createType({ orgId, typeName, description, createdBy });
         },
+      },
+      context: {
+        existingTypes: existingTypes.map((t) => ({
+          typeName: t.typeName,
+          description: t.description,
+          entityCount: t.entityCount,
+        })),
+        existingEntities: existingEntities.map((e) => ({
+          entityId: e.entityId,
+          typeName: e.typeName,
+          name: e.name,
+          mentionCount: e.mentionCount,
+        })),
       },
     });
 
@@ -427,6 +462,33 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
       });
     }
 
+    // Persist extracted entities to Neo4j
+    for (const entity of enrichment.entities) {
+      const entityId = entity.matchedExistingEntityId ?? nanoid();
+      await entityRepo.upsertEntity({
+        orgId: payload.orgId,
+        entityId,
+        typeName: entity.typeName,
+        name: entity.name,
+        properties: entity.properties,
+        sourceFileId: payload.fileId,
+        confidence: entity.confidence,
+      });
+    }
+
+    // Persist relationships to Neo4j
+    for (const rel of enrichment.relationships) {
+      await entityRepo.upsertRelationship({
+        orgId: payload.orgId,
+        relationshipId: nanoid(),
+        fromName: rel.from,
+        toName: rel.to,
+        relationshipType: rel.relationshipType,
+        properties: rel.properties,
+        sourceFileId: payload.fileId,
+      });
+    }
+
     await logRepo.appendProcessingLog({
       orgId: payload.orgId,
       fileId: payload.fileId,
@@ -437,6 +499,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
         entities: enrichment.entities.length,
         relationships: enrichment.relationships.length,
         createdTypes: enrichment.createdTypes.length,
+        resolvedMatches: enrichment.resolvedMatches?.length ?? 0,
       },
     });
   } finally {

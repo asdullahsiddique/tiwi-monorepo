@@ -54,6 +54,17 @@ export default function FileViewClient(props: { fileId: string }) {
     reprocessMutation.mutate({ fileId: props.fileId });
   };
 
+  if (view.isLoading) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-6">
+        <div className="h-8 w-64 animate-pulse rounded bg-[var(--muted-2)]/20" />
+        <div className="h-4 w-32 animate-pulse rounded bg-[var(--muted-2)]/20" />
+        <div className="h-64 animate-pulse rounded-2xl bg-[var(--muted-2)]/20" />
+        <div className="h-32 animate-pulse rounded-2xl bg-[var(--muted-2)]/20" />
+      </div>
+    );
+  }
+
   return (
     <FileViewScreen
       title={title}

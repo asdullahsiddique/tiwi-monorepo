@@ -13,6 +13,7 @@ export default function FilesClient() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const utils = api.useUtils();
   const listQuery = api.files.list.useQuery({ limit: 50, offset: 0 });
   const requestUploadMutation = api.files.requestUpload.useMutation();
   const commitUploadMutation = api.files.commitUpload.useMutation();
@@ -55,7 +56,7 @@ export default function FilesClient() {
       sizeBytes: file.size,
     });
 
-    await listQuery.refetch();
+    void utils.files.list.invalidate();
     router.push(`/files/${req.fileId}`);
   }
 
@@ -80,6 +81,7 @@ export default function FilesClient() {
 
       <FileManagerScreen
         items={items}
+        isLoading={listQuery.isLoading}
         isUploading={isUploading}
         error={error ?? listQuery.error?.message ?? null}
         onPickFiles={() => fileInputRef.current?.click()}

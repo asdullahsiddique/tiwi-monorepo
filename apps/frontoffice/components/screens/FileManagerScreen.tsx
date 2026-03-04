@@ -45,6 +45,7 @@ function getFileStatusStyle(status: string) {
 
 export function FileManagerScreen(props: {
   items: FileListItem[];
+  isLoading?: boolean;
   isUploading: boolean;
   error?: string | null;
   onPickFiles: () => void;
@@ -85,7 +86,17 @@ export function FileManagerScreen(props: {
           <div className="col-span-3">Status</div>
         </div>
 
-        {props.items.length === 0 ? (
+        {props.isLoading ? (
+          <div className="divide-y divide-[color:var(--border)]">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="grid grid-cols-12 gap-3 px-5 py-4">
+                <div className="col-span-6 h-4 animate-pulse rounded bg-[var(--muted-2)]/20" />
+                <div className="col-span-3 h-4 animate-pulse rounded bg-[var(--muted-2)]/20" />
+                <div className="col-span-3 h-5 w-20 animate-pulse rounded-full bg-[var(--muted-2)]/20" />
+              </div>
+            ))}
+          </div>
+        ) : props.items.length === 0 ? (
           <div className="px-5 py-10 text-sm text-[var(--muted)]">
             No files yet.
           </div>

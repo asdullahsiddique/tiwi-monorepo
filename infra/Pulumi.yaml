@@ -1,0 +1,9 @@
+name: tiwi
+description: Tiwi media intelligence platform — AWS infrastructure
+runtime:
+  name: nodejs
+  options:
+    packagemanager: pnpm
+config:
+  aws:region:
+    default: eu-central-1

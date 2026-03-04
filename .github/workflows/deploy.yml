@@ -1,0 +1,53 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # allow manual trigger from GitHub UI
+
+# Required for OIDC — lets the job request a short-lived AWS token
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Pulumi up
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Assumes your AWS role via OIDC — no long-lived credentials stored in GitHub.
+      # Add these secrets in GitHub → Settings → Secrets and variables → Actions:
+      #   AWS_ROLE_ARN  — the IAM role ARN with sufficient permissions (see below)
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-central-1
+
+      # pulumi up: provisions infra, builds Docker images, pushes to ECR, updates ECS.
+      # Secrets live in the encrypted Pulumi stack config (Pulumi.prod.yaml).
+      # Add PULUMI_ACCESS_TOKEN to GitHub secrets (https://app.pulumi.com/account/tokens).
+      - name: Pulumi up
+        uses: pulumi/actions@v6
+        with:
+          command: up
+          stack-name: prod
+          work-dir: infra
+          upsert: true   # creates the stack if it doesn't exist yet
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

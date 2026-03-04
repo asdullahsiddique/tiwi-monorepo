@@ -1,0 +1,13 @@
+.git
+.gitignore
+node_modules
+**/node_modules
+**/.next
+**/dist
+**/cdk.out
+infra/cdk.out
+*.log
+.env
+.env.local
+.env.*.local
+HealthAnxiety_AI_App_Summary.pdf

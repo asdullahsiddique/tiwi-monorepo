@@ -1,18 +1,16 @@
 {
   "compilerOptions": {
+    "strict": true,
+    "outDir": "bin",
     "target": "ES2020",
     "module": "commonjs",
-    "lib": ["es2020"],
-    "declaration": true,
-    "strict": true,
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "noImplicitThis": true,
-    "alwaysStrict": true,
-    "outDir": "dist",
-    "rootDir": ".",
+    "moduleResolution": "node",
+    "sourceMap": true,
     "experimentalDecorators": true,
-    "skipLibCheck": true
+    "pretty": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "forceConsistentCasingInFileNames": true
   },
-  "exclude": ["node_modules", "cdk.out", "dist"]
+  "files": ["index.ts"]
 }

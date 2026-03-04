@@ -17,7 +17,7 @@ pulumi stack select prod 2>/dev/null || pulumi stack init prod
 
 echo ""
 echo "==> Setting region..."
-pulumi config set aws:region eu-central-1
+pulumi config set aws:region eu-central-1   # stored in Pulumi.prod.yaml with 'value'
 
 echo ""
 echo "==> Enter your config values (secrets are encrypted and safe to commit):"

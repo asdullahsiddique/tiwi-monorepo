@@ -7,12 +7,14 @@ import * as awsx from "@pulumi/awsx";
 //   pulumi config set --secret tiwi:openAiApiKey         sk-...
 //   pulumi config set --secret tiwi:neo4jUri             neo4j+s://...
 //   pulumi config set --secret tiwi:neo4jPassword        ...
+//   pulumi config set --secret tiwi:redisUrl             rediss://...upstash.io:6379
 //   pulumi config set --secret tiwi:assemblyAiApiKey     ...   (optional)
 const cfg = new pulumi.Config("tiwi");
 
 const openAiApiKey     = cfg.requireSecret("openAiApiKey");
 const neo4jUri         = cfg.requireSecret("neo4jUri");
 const neo4jPassword    = cfg.requireSecret("neo4jPassword");
+const redisUrl         = cfg.requireSecret("redisUrl");
 const assemblyAiApiKey = cfg.getSecret("assemblyAiApiKey") ?? pulumi.output("");
 
 // ─── AWS context ──────────────────────────────────────────────────────────────
@@ -27,19 +29,12 @@ const vpc = new awsx.ec2.Vpc("tiwi", {
 });
 
 // ─── Security Groups ──────────────────────────────────────────────────────────
-// Daemon only needs outbound (connects to Redis, Neo4j, OpenAI, etc.)
+// Daemon only needs outbound (connects to Upstash Redis, Neo4j, OpenAI, etc.)
 const daemonSg = new aws.ec2.SecurityGroup("daemon-sg", {
   vpcId: vpc.vpcId,
   description: "ECS daemon - outbound only",
   egress: [{ protocol: "-1", fromPort: 0, toPort: 0, cidrBlocks: ["0.0.0.0/0"] }],
   tags: { Name: "tiwi-daemon" },
-});
-
-const redisSg = new aws.ec2.SecurityGroup("redis-sg", {
-  vpcId: vpc.vpcId,
-  description: "ElastiCache Redis - inbound from daemon only",
-  ingress: [{ protocol: "tcp", fromPort: 6379, toPort: 6379, securityGroups: [daemonSg.id] }],
-  tags: { Name: "tiwi-redis" },
 });
 
 // ─── S3 ───────────────────────────────────────────────────────────────────────
@@ -73,25 +68,8 @@ new aws.s3.BucketLifecycleConfigurationV2("files-lifecycle", {
   }],
 });
 
-// ─── ElastiCache Redis ────────────────────────────────────────────────────────
-const redisSubnetGroup = new aws.elasticache.SubnetGroup("redis-subnet-group", {
-  name: "tiwi-redis",
-  subnetIds: vpc.privateSubnetIds,
-});
-
-const redis = new aws.elasticache.Cluster("redis", {
-  clusterId: "tiwi-redis",
-  engine: "redis",
-  engineVersion: "7.1",
-  nodeType: "cache.t4g.micro",
-  numCacheNodes: 1,
-  subnetGroupName: redisSubnetGroup.name,
-  securityGroupIds: [redisSg.id],
-});
-
-const redisAddress = redis.cacheNodes.apply(n => n[0].address);
-const redisPort    = redis.cacheNodes.apply(n => n[0].port);
-const redisUrl     = pulumi.interpolate`redis://${redisAddress}:${redisPort}`;
+// Redis URL comes from Upstash (accessible from both Vercel and ECS).
+// Set via: pulumi config set --secret tiwi:redisUrl rediss://...upstash.io:6379
 
 // ─── ECR Repository ───────────────────────────────────────────────────────────
 const daemonRepo = new aws.ecr.Repository("daemon-repo", {
@@ -258,7 +236,6 @@ new aws.ecs.Service("daemon", {
 });
 
 // ─── Outputs ──────────────────────────────────────────────────────────────────
-export const s3BucketName  = filesBucket.id;
-export const clusterName   = cluster.name;
-export const daemonEcrUri  = daemonRepo.repositoryUrl;
-export const redisEndpoint = redisUrl;
+export const s3BucketName = filesBucket.id;
+export const clusterName  = cluster.name;
+export const daemonEcrUri = daemonRepo.repositoryUrl;

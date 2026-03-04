@@ -43,6 +43,7 @@ jobs:
       #   OPENAI_API_KEY             — sk-...
       #   NEO4J_URI                  — neo4j+s://...
       #   NEO4J_PASSWORD             — ...
+      #   REDIS_URL                  — rediss://...upstash.io:6379
       #   ASSEMBLYAI_API_KEY         — ... (optional, set to a dummy value if unused)
       - name: Set Pulumi stack config
         working-directory: infra
@@ -54,6 +55,7 @@ jobs:
           pulumi config set --secret tiwi:openAiApiKey     "${{ secrets.OPENAI_API_KEY }}"
           pulumi config set --secret tiwi:neo4jUri         "${{ secrets.NEO4J_URI }}"
           pulumi config set --secret tiwi:neo4jPassword    "${{ secrets.NEO4J_PASSWORD }}"
+          pulumi config set --secret tiwi:redisUrl         "${{ secrets.REDIS_URL }}"
           pulumi config set --secret tiwi:assemblyAiApiKey "${{ secrets.ASSEMBLYAI_API_KEY }}"
 
       - name: Pulumi up

@@ -3,9 +3,8 @@ name: Deploy
 on:
   push:
     branches: [main]
-  workflow_dispatch: # allow manual trigger from GitHub UI
+  workflow_dispatch:
 
-# Required for OIDC — lets the job request a short-lived AWS token
 permissions:
   id-token: write
   contents: read
@@ -30,26 +29,44 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Assumes your AWS role via OIDC — no long-lived credentials stored in GitHub.
-      # Add these secrets in GitHub → Settings → Secrets and variables → Actions:
-      #   AWS_ROLE_ARN  — the IAM role ARN with sufficient permissions (see below)
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: eu-central-1
 
-      # pulumi up: provisions infra, builds Docker images, pushes to ECR, updates ECS.
-      # Secrets live in the encrypted Pulumi stack config (Pulumi.prod.yaml).
-      # Add PULUMI_ACCESS_TOKEN to GitHub secrets (https://app.pulumi.com/account/tokens).
+      # Set Pulumi stack config from GitHub secrets so Pulumi.prod.yaml
+      # doesn't need to exist in the repo. Run this before pulumi up.
+      # GitHub secrets to add (Settings → Secrets and variables → Actions):
+      #   PULUMI_ACCESS_TOKEN        — https://app.pulumi.com/account/tokens
+      #   AWS_ROLE_ARN               — IAM role ARN for OIDC
+      #   CLERK_PUBLISHABLE_KEY      — pk_live_...  (public, but kept here for convenience)
+      #   CLERK_SECRET_KEY           — sk_live_...
+      #   OPENAI_API_KEY             — sk-...
+      #   NEO4J_URI                  — neo4j+s://...
+      #   NEO4J_PASSWORD             — ...
+      #   ASSEMBLYAI_API_KEY         — ... (optional, set to a dummy value if unused)
+      - name: Set Pulumi stack config
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi stack select tiwi/prod --create
+          pulumi config set aws:region eu-central-1
+          pulumi config set tiwi:clerkPublishableKey "${{ secrets.CLERK_PUBLISHABLE_KEY }}"
+          pulumi config set --secret tiwi:clerkSecretKey   "${{ secrets.CLERK_SECRET_KEY }}"
+          pulumi config set --secret tiwi:openAiApiKey     "${{ secrets.OPENAI_API_KEY }}"
+          pulumi config set --secret tiwi:neo4jUri         "${{ secrets.NEO4J_URI }}"
+          pulumi config set --secret tiwi:neo4jPassword    "${{ secrets.NEO4J_PASSWORD }}"
+          pulumi config set --secret tiwi:assemblyAiApiKey "${{ secrets.ASSEMBLYAI_API_KEY }}"
+
       - name: Pulumi up
         uses: pulumi/actions@v6
         with:
           command: up
           stack-name: tiwi/prod
           work-dir: infra
-          upsert: true   # creates the stack if it doesn't exist yet
+          upsert: true
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          # Explicit region so Pulumi AWS provider doesn't need it in stack config
           AWS_DEFAULT_REGION: eu-central-1

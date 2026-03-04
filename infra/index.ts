@@ -30,14 +30,14 @@ const vpc = new awsx.ec2.Vpc("tiwi", {
 // Daemon only needs outbound (connects to Redis, Neo4j, OpenAI, etc.)
 const daemonSg = new aws.ec2.SecurityGroup("daemon-sg", {
   vpcId: vpc.vpcId,
-  description: "ECS daemon — outbound only",
+  description: "ECS daemon - outbound only",
   egress: [{ protocol: "-1", fromPort: 0, toPort: 0, cidrBlocks: ["0.0.0.0/0"] }],
   tags: { Name: "tiwi-daemon" },
 });
 
 const redisSg = new aws.ec2.SecurityGroup("redis-sg", {
   vpcId: vpc.vpcId,
-  description: "ElastiCache Redis — inbound from daemon only",
+  description: "ElastiCache Redis - inbound from daemon only",
   ingress: [{ protocol: "tcp", fromPort: 6379, toPort: 6379, securityGroups: [daemonSg.id] }],
   tags: { Name: "tiwi-redis" },
 });

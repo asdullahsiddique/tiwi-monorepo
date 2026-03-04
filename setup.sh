@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/infra"
 
 echo "==> Selecting or creating Pulumi stack 'prod'..."
-pulumi stack select prod 2>/dev/null || pulumi stack init prod
+pulumi stack select tiwi/prod 2>/dev/null || pulumi stack init tiwi/prod
 
 echo ""
 echo "==> Setting region..."

@@ -257,7 +257,7 @@ const targetGroup = new aws.lb.TargetGroup("frontoffice-tg", {
     healthyThreshold: 2, unhealthyThreshold: 3,
     interval: 30, timeout: 5,
   },
-  deregistrationDelay: "30",
+  deregistrationDelay: 30,
   tags: { Name: "tiwi-frontoffice" },
 });
 

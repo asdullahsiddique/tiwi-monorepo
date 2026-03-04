@@ -16,6 +16,7 @@
     "@tiwi/neo4j": "workspace:*",
     "@tiwi/shared": "workspace:*",
     "@tiwi/storage": "workspace:*",
+    "assemblyai": "^4.23.0",
     "bullmq": "^5.58.4",
     "dotenv": "^16.6.1",
     "nanoid": "^5.1.6",

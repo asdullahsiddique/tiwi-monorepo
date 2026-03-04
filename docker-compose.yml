@@ -22,6 +22,7 @@ services:
     environment:
       - MINIO_ROOT_USER=minioadmin
       - MINIO_ROOT_PASSWORD=minioadminpassword
+      - MINIO_BROWSER_REDIRECT_URL=http://localhost:9001
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -39,7 +40,7 @@ services:
         sleep 1;
       done;
       mc mb --ignore-existing local/tiwi;
-      mc anonymous set download local/tiwi;
+      mc anonymous set public local/tiwi;
       exit 0;
       "
 

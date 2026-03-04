@@ -35,6 +35,7 @@ export async function getFileView(params: {
 }): Promise<{
   file: Awaited<ReturnType<FileRepository["getFile"]>>;
   downloadUrl: string | null;
+  previewUrl: string | null;
   summary: string | null;
   processingLogs: Awaited<ReturnType<LogRepository["listProcessingLogs"]>>;
   aiLogs: Awaited<ReturnType<LogRepository["listAIExecutionLogs"]>>;
@@ -105,6 +106,7 @@ export async function getFileView(params: {
     properties: r.properties,
   }));
 
+  // Generate presigned URL for direct download (Open original button)
   const downloadUrl = file
     ? await createPresignedGetUrl({
         objectKey: file.objectKey,
@@ -112,9 +114,13 @@ export async function getFileView(params: {
       })
     : null;
 
+  // Preview URL uses the proxy API route to avoid CORS issues
+  const previewUrl = file ? `/api/files/${file.fileId}/preview` : null;
+
   return {
     file,
     downloadUrl,
+    previewUrl,
     summary,
     processingLogs,
     aiLogs,

@@ -9,6 +9,7 @@ const TERMINAL_STATUSES = ["PROCESSED", "FAILED"];
 export default function FileViewClient(props: { fileId: string }) {
   const file = useRef<any>(null);
   const downloadUrlRef = useRef<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
 
   const view = api.files.getView.useQuery(
     { fileId: props.fileId },
@@ -26,8 +27,9 @@ export default function FileViewClient(props: { fileId: string }) {
 
   const reprocessMutation = api.files.reprocess.useMutation({
     onSuccess: () => {
-      // Reset download URL ref so it gets a fresh one after reprocessing
+      // Reset URL refs so they get fresh ones after reprocessing
       downloadUrlRef.current = null;
+      previewUrlRef.current = null;
       // Refetch to get updated status
       view.refetch();
     },
@@ -36,9 +38,12 @@ export default function FileViewClient(props: { fileId: string }) {
   // Update refs only when we have new data
   if (view.data) {
     file.current = (view.data as any).file;
-    // Only update download URL if we don't have one yet (prevents iframe flicker)
+    // Only update URLs if we don't have them yet (prevents iframe flicker)
     if (!downloadUrlRef.current && (view.data as any).downloadUrl) {
       downloadUrlRef.current = (view.data as any).downloadUrl;
+    }
+    if (!previewUrlRef.current && (view.data as any).previewUrl) {
+      previewUrlRef.current = (view.data as any).previewUrl;
     }
   }
 
@@ -55,6 +60,7 @@ export default function FileViewClient(props: { fileId: string }) {
       status={currentFile?.status ?? "—"}
       contentType={currentFile?.contentType ?? "—"}
       downloadUrl={downloadUrlRef.current}
+      previewUrl={previewUrlRef.current}
       summary={(view.data as any)?.summary ?? null}
       embeddingsMeta={(view.data as any)?.embeddingsMeta ?? { chunkCount: 0 }}
       processingLogs={(view.data as any)?.processingLogs ?? []}

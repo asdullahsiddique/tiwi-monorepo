@@ -8,6 +8,9 @@ const DaemonEnvSchema = z.object({
   OPENAI_PRICE_INPUT_PER_1M_USD: z.coerce.number().nonnegative().default(0),
   OPENAI_PRICE_OUTPUT_PER_1M_USD: z.coerce.number().nonnegative().default(0),
   
+  // AssemblyAI (optional - for video/audio transcription)
+  ASSEMBLYAI_API_KEY: z.string().optional(),
+  
   // LangSmith (optional - for LangGraph observability)
   // Supports both LANGSMITH_* (newer) and LANGCHAIN_* (older) naming
   LANGSMITH_TRACING: z.string().optional(),

@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "infra"
 
 # Allow build/postinstall scripts for selected deps (pnpm v10 supply-chain controls).
 onlyBuiltDependencies:

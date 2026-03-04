@@ -1,5 +1,6 @@
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import OpenAI from "openai";
+import { AssemblyAI } from "assemblyai";
 import { nanoid } from "nanoid";
 import {
   ArtifactRepository,
@@ -12,7 +13,7 @@ import {
   EntityRepository,
   seedEntityTypes,
 } from "@tiwi/neo4j";
-import { createS3Client } from "@tiwi/storage";
+import { createS3Client, createPresignedGetUrl } from "@tiwi/storage";
 import { runFileEnrichment } from "@tiwi/enrichment";
 import { getDaemonEnv } from "../env";
 import type { ProcessFileV1Payload } from "../jobs/types";
@@ -71,6 +72,37 @@ function isTextBasedFile(contentType: string): boolean {
   );
 }
 
+// Video file types supported via AssemblyAI transcription
+const VIDEO_FILE_TYPES = [
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-msvideo",
+  "video/x-matroska",
+  "video/mpeg",
+  "video/ogg",
+];
+
+// Audio file types also supported via AssemblyAI
+const AUDIO_FILE_TYPES = [
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/ogg",
+  "audio/flac",
+  "audio/aac",
+  "audio/m4a",
+  "audio/webm",
+];
+
+function isVideoFile(contentType: string): boolean {
+  return VIDEO_FILE_TYPES.includes(contentType) || contentType.startsWith("video/");
+}
+
+function isAudioFile(contentType: string): boolean {
+  return AUDIO_FILE_TYPES.includes(contentType) || contentType.startsWith("audio/");
+}
+
 export async function processFileV1(payload: ProcessFileV1Payload): Promise<void> {
   const env = getDaemonEnv();
   const driver = createNeo4jDriver();
@@ -101,8 +133,130 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
     let extractedText = "";
     let summary = "";
 
-    // Use GPT for PDFs and images, plain text extraction for text files
-    if (isGptSupportedFile(file.contentType) && env.OPENAI_API_KEY) {
+    // Use AssemblyAI for video and audio files
+    if ((isVideoFile(file.contentType) || isAudioFile(file.contentType)) && env.ASSEMBLYAI_API_KEY) {
+      const assemblyai = new AssemblyAI({ apiKey: env.ASSEMBLYAI_API_KEY });
+
+      await logRepo.appendProcessingLog({
+        orgId: payload.orgId,
+        fileId: payload.fileId,
+        logId: nanoid(),
+        level: "INFO",
+        message: "Starting video/audio transcription with AssemblyAI",
+        metadata: { contentType: file.contentType, sizeBytes: body.length },
+      });
+
+      // Generate presigned URL for AssemblyAI to fetch the file
+      // URL valid for 2 hours to allow for long transcription jobs
+      const presignedUrl = await createPresignedGetUrl({
+        objectKey: file.objectKey,
+        expiresInSeconds: 7200,
+      });
+
+      try {
+        // Submit transcription job with speaker diarization and auto chapters
+        // Note: auto_chapters and summarization cannot be enabled at the same time
+        const transcript = await assemblyai.transcripts.transcribe({
+          audio: presignedUrl,
+          speaker_labels: true,      // Identify different speakers (useful for interviews)
+          auto_chapters: true,       // Break into chapters automatically (includes summaries per chapter)
+        });
+
+        if (transcript.status === "error") {
+          throw new Error(`AssemblyAI transcription failed: ${transcript.error}`);
+        }
+
+        extractedText = transcript.text ?? "";
+        
+        // Build summary from AssemblyAI's auto chapters (each chapter has headline + summary)
+        const summaryParts: string[] = [];
+        
+        if (transcript.chapters && transcript.chapters.length > 0) {
+          for (const chapter of transcript.chapters) {
+            const startTime = Math.floor((chapter.start ?? 0) / 1000);
+            const minutes = Math.floor(startTime / 60);
+            const seconds = startTime % 60;
+            const timestamp = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+            summaryParts.push(`**[${timestamp}] ${chapter.headline}**`);
+            if (chapter.summary) {
+              summaryParts.push(chapter.summary);
+            }
+            summaryParts.push(""); // Empty line between chapters
+          }
+        }
+
+        summary = summaryParts.join("\n").trim() || "Transcription complete. No chapters detected.";
+
+        // Log speaker information if available
+        const speakerCount = transcript.utterances 
+          ? new Set(transcript.utterances.map(u => u.speaker)).size 
+          : 0;
+
+        await logRepo.appendProcessingLog({
+          orgId: payload.orgId,
+          fileId: payload.fileId,
+          logId: nanoid(),
+          level: "INFO",
+          message: "AssemblyAI transcription complete",
+          metadata: {
+            textLength: extractedText.length,
+            speakerCount,
+            chapterCount: transcript.chapters?.length ?? 0,
+            durationSeconds: transcript.audio_duration ?? 0,
+          },
+        });
+
+        // Log AI execution (AssemblyAI pricing: ~$0.37/hour for best model)
+        const durationHours = (transcript.audio_duration ?? 0) / 3600;
+        const estimatedCost = durationHours * 0.37; // Best model pricing
+
+        await logRepo.appendAIExecutionLog({
+          orgId: payload.orgId,
+          fileId: payload.fileId,
+          logId: nanoid(),
+          model: "assemblyai-best",
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          costUsd: Number(estimatedCost.toFixed(4)),
+          purpose: "transcription:video",
+          metadata: {
+            durationSeconds: transcript.audio_duration,
+            speakerCount,
+          },
+        });
+      } catch (transcriptionError) {
+        const errorMessage = transcriptionError instanceof Error 
+          ? transcriptionError.message 
+          : String(transcriptionError);
+        
+        await logRepo.appendProcessingLog({
+          orgId: payload.orgId,
+          fileId: payload.fileId,
+          logId: nanoid(),
+          level: "WARN",
+          message: `AssemblyAI transcription failed: ${errorMessage}`,
+          metadata: { error: errorMessage },
+        });
+
+        extractedText = "";
+        summary = `Video/audio transcription failed: ${errorMessage}`;
+      }
+    } else if ((isVideoFile(file.contentType) || isAudioFile(file.contentType)) && !env.ASSEMBLYAI_API_KEY) {
+      // Video/audio file but no AssemblyAI key
+      extractedText = "";
+      summary = "Video/audio file detected but ASSEMBLYAI_API_KEY is not configured. Unable to transcribe.";
+      
+      await logRepo.appendProcessingLog({
+        orgId: payload.orgId,
+        fileId: payload.fileId,
+        logId: nanoid(),
+        level: "WARN",
+        message: "ASSEMBLYAI_API_KEY not set; skipping video/audio transcription",
+        metadata: { contentType: file.contentType },
+      });
+    } else if (isGptSupportedFile(file.contentType) && env.OPENAI_API_KEY) {
+      // Use GPT for PDFs and images
       const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
       
       // Convert file to base64

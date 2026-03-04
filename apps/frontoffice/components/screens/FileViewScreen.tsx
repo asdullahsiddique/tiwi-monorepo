@@ -284,6 +284,7 @@ export function FileViewScreen(props: {
   status: string;
   contentType: string;
   downloadUrl: string | null;
+  previewUrl?: string | null;
   summary: string | null;
   embeddingsMeta: { chunkCount: number; model?: string };
   processingLogs: ProcessingLogRecord[];
@@ -372,12 +373,30 @@ export function FileViewScreen(props: {
           <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
             <div className="text-sm font-medium">Original</div>
             <div className="mt-3 text-sm text-[var(--muted)]">
-              {props.downloadUrl ? (
+              {(props.previewUrl || props.downloadUrl) ? (
                 <div className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-white">
-                  <iframe
-                    className="h-[520px] w-full"
-                    src={props.downloadUrl}
-                  />
+                  {props.contentType.startsWith("image/") ? (
+                    <img
+                      src={props.previewUrl ?? props.downloadUrl!}
+                      alt={props.title}
+                      className="max-h-[520px] w-full object-contain p-4"
+                    />
+                  ) : props.contentType.startsWith("video/") ? (
+                    <video
+                      src={props.previewUrl ?? props.downloadUrl!}
+                      controls
+                      className="h-[520px] w-full"
+                    />
+                  ) : props.contentType.startsWith("audio/") ? (
+                    <div className="flex h-32 items-center justify-center p-6">
+                      <audio src={props.previewUrl ?? props.downloadUrl!} controls className="w-full" />
+                    </div>
+                  ) : (
+                    <iframe
+                      className="h-[520px] w-full"
+                      src={props.previewUrl ?? props.downloadUrl!}
+                    />
+                  )}
                 </div>
               ) : (
                 "No download URL available yet."

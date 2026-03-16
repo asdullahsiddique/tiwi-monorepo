@@ -89,7 +89,13 @@ export async function startWorker(): Promise<void> {
     },
     {
       connection: { url: REDIS_URL },
-      concurrency: 4,
+      concurrency: 2,
+      // Reduce Redis command volume on Upstash free tier.
+      // stalledInterval: how often to check for stalled jobs (default: 30s → 5min)
+      stalledInterval: 300_000,
+      // lockDuration: how long a job lock is held before renewal (default: 30s → 2min)
+      // lock is renewed every lockDuration/2, so this halves renewal frequency
+      lockDuration: 120_000,
     },
   );
 

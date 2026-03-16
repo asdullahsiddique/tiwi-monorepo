@@ -56,6 +56,12 @@ const GPT_SUPPORTED_FILE_TYPES = [
   "image/jpg",
   "image/gif",
   "image/webp",
+  // Word documents — passed as binary to GPT-4o Responses API
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+  "application/msword", // .doc
+  // PowerPoint
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
+  "application/vnd.ms-powerpoint", // .ppt
 ];
 
 function isGptSupportedFile(contentType: string): boolean {
@@ -268,10 +274,14 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
         metadata: { contentType: file.contentType, sizeBytes: body.length },
       });
 
-      // Use the new Responses API for PDFs, Chat Completions for images
-      const isPdf = file.contentType === "application/pdf";
-      
-      if (isPdf) {
+      // Use the Responses API for PDFs and document files; Chat Completions for images
+      const isDocumentFile = file.contentType === "application/pdf" ||
+        file.contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+        file.contentType === "application/msword" ||
+        file.contentType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+        file.contentType === "application/vnd.ms-powerpoint";
+
+      if (isDocumentFile) {
         // Use the Responses API with input_file for PDFs
         const extractionResponse = await (openai as any).responses.create({
           model: "gpt-4o",
@@ -326,7 +336,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
             priceInputPer1M: 2.5,
             priceOutputPer1M: 10,
           }),
-          purpose: "extraction:pdf",
+          purpose: "extraction:document",
           metadata: { contentType: file.contentType },
         });
       } else {

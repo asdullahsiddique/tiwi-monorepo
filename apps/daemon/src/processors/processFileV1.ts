@@ -271,7 +271,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
               ],
             },
           ],
-        });
+        }, { timeout: 180_000 });
 
         extractedText = (extractionResponse.output_text ?? "").trim();
 
@@ -355,7 +355,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
                 ],
               },
             ],
-          });
+          }, { timeout: 120_000 });
           summary = (visualSummaryResponse.output_text ?? "").trim() || "No summary generated.";
           const inTok = visualSummaryResponse.usage?.input_tokens ?? 0;
           const outTok = visualSummaryResponse.usage?.output_tokens ?? 0;

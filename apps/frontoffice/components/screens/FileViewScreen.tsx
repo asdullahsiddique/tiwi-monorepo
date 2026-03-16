@@ -337,7 +337,7 @@ export function FileViewScreen(props: {
           {props.onReprocess && (
             <button
               onClick={props.onReprocess}
-              disabled={props.isReprocessing || props.status === "PROCESSING" || props.status === "QUEUED"}
+              disabled={props.isReprocessing || props.status === "QUEUED"}
               className="flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-[var(--surface-2)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] shadow-sm hover:bg-[var(--surface-3)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg

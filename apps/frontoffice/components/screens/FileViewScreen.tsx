@@ -221,6 +221,7 @@ export type FileViewEntity = {
   typeName: string;
   name: string;
   properties: Record<string, unknown>;
+  typeStatus?: 'active' | 'draft';
 };
 
 export type FileViewRelationship = {
@@ -551,13 +552,19 @@ export function FileViewScreen(props: {
                 <div className="flex flex-wrap gap-2">
                   {props.entities.map((e) => {
                     const color = getEntityTypeColor(e.typeName);
+                    const isDraft = e.typeStatus === "draft";
                     return (
                       <div
                         key={e.entityId}
-                        className={`rounded-lg border px-3 py-2 ${color.bg} ${color.border}`}
+                        className={`rounded-lg px-3 py-2 ${color.bg} ${isDraft ? "border border-dashed border-amber-400" : `border ${color.border}`}`}
                       >
-                        <div className={`text-xs font-medium ${color.text}`}>
+                        <div className={`flex items-center gap-1.5 text-xs font-medium ${color.text}`}>
                           {e.typeName}
+                          {isDraft && (
+                            <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
+                              draft
+                            </span>
+                          )}
                         </div>
                         <div className="mt-0.5 text-sm font-medium text-[var(--foreground)]">
                           {e.name}

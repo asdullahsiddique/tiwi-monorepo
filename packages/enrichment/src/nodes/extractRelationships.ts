@@ -49,20 +49,21 @@ function buildSystemPrompt(state: EnrichmentState): string {
 These entities were extracted from the text. ONLY create relationships between these entities:
 ${entitiesList}
 
+## Allowed Relationship Types
+You MUST use ONLY these relationship types (SCREAMING_SNAKE_CASE):
+WORKS_AT, EMPLOYED_BY, REPORTS_TO, MANAGES, FOUNDED_BY, OWNS, SUBSIDIARY_OF,
+PARTNER_OF, ACQUIRED_BY, MEMBER_OF, LOCATED_IN, ISSUED_BY, BILLED_TO, PAID_TO,
+PAID_BY, REFERS_TO, CREATED_BY, AUTHORED_BY, SIGNED_BY, APPROVED_BY,
+RELATED_TO, PART_OF, CONTAINS, MENTIONS, ATTENDED_BY, PARTICIPATED_IN,
+SCHEDULED_ON, DUE_ON, ASSIGNED_TO, TAGGED_WITH
+
+If no relationship from this list applies, omit the relationship rather than inventing a new type.
+
 ## Rules for Relationship Extraction
 1. Only create relationships between entities that are EXPLICITLY or STRONGLY implied in the text
-2. Relationship types should be in SCREAMING_SNAKE_CASE (e.g., WORKS_AT, ISSUED_BY, PAID_TO)
-3. Choose relationship names that are:
-   - Clear and descriptive (WORKS_AT not RELATED_TO)
-   - Directional where appropriate (MANAGES vs MANAGED_BY)
-   - Domain-appropriate (BILLED_TO for invoices, EMPLOYED_BY for people)
-4. Common relationship types include:
-   - Organization relationships: SUBSIDIARY_OF, PARTNER_OF, ACQUIRED_BY
-   - Person relationships: WORKS_AT, MANAGES, REPORTS_TO, KNOWS
-   - Document relationships: ISSUED_BY, SENT_TO, SIGNED_BY, REFERENCES
-   - Financial relationships: PAID_TO, INVOICED_BY, FUNDED_BY
-5. Don't create vague or generic relationships
-6. Include relevant properties (e.g., amount, date, role) when available
+2. Use ONLY the relationship types from the allowed list above
+3. Include relevant properties (e.g., amount, date, role) when available
+4. Don't create vague or unsupported relationships
 
 ## Output Format
 Return a JSON object with:

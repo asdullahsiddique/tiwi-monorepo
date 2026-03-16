@@ -26,6 +26,7 @@ export type ExtractedRelationship = z.infer<typeof ExtractedRelationshipSchema>;
 export const ProposedTypeSchema = z.object({
   typeName: z.string().min(1).max(64),
   description: z.string().min(1).max(500),
+  suggestedProperties: z.array(z.string()).default([]),
 });
 export type ProposedType = z.infer<typeof ProposedTypeSchema>;
 
@@ -52,6 +53,7 @@ export type DecisionLog = {
 export type EntityTypeContext = {
   typeName: string;
   description: string;
+  properties?: string[];
   entityCount?: number;
 };
 

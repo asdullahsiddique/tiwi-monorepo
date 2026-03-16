@@ -9,5 +9,5 @@ export * from "./repositories/embeddingRepo";
 export * from "./repositories/artifactRepo";
 export * from "./repositories/entityRepo";
 export * from "./repositories/searchHistoryRepo";
-export * from "./seed/entityTypes";
+export { formatTypesForPrompt } from "./seed/entityTypes";
 

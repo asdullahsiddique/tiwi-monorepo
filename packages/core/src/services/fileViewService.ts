@@ -6,6 +6,7 @@ import {
   FileRepository,
   LogRepository,
   EntityRepository,
+  TypeRegistryRepository,
   type EntityRecord,
   type RelationshipRecord,
 } from "@tiwi/neo4j";
@@ -16,6 +17,7 @@ export type FileViewEntity = {
   typeName: string;
   name: string;
   properties: Record<string, unknown>;
+  typeStatus?: 'active' | 'draft';
 };
 
 export type FileViewRelationship = {
@@ -51,6 +53,7 @@ export async function getFileView(params: {
   const artifactRepo = new ArtifactRepository(driver);
   const embeddingRepo = new EmbeddingRepository(driver);
   const entityRepo = new EntityRepository(driver);
+  const typeRepo = new TypeRegistryRepository(driver);
 
   const file = await fileRepo.getFile({
     orgId: params.orgId,
@@ -89,11 +92,18 @@ export async function getFileView(params: {
     fileId: params.fileId,
   });
 
+  // Build a map of typeName -> status for annotating entities
+  const allTypes = await typeRepo.listTypes({ orgId: params.orgId });
+  const typeStatusMap = new Map<string, 'active' | 'draft'>(
+    allTypes.map((t) => [t.typeName, t.status])
+  );
+
   const entities: FileViewEntity[] = entitiesRaw.map((e) => ({
     entityId: e.entityId,
     typeName: e.typeName,
     name: e.name,
     properties: e.properties,
+    typeStatus: typeStatusMap.get(e.typeName),
   }));
 
   const relationships: FileViewRelationship[] = relationshipsRaw.map((r) => ({

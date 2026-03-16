@@ -11,7 +11,6 @@ import {
   LogRepository,
   TypeRegistryRepository,
   EntityRepository,
-  seedEntityTypes,
 } from "@tiwi/neo4j";
 import { createS3Client, createPresignedGetUrl } from "@tiwi/storage";
 import { runFileEnrichment } from "@tiwi/enrichment";
@@ -116,9 +115,6 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
     const embeddingRepo = new EmbeddingRepository(driver);
     const typeRepo = new TypeRegistryRepository(driver);
     const entityRepo = new EntityRepository(driver);
-
-    // Ensure built-in entity types are seeded
-    await seedEntityTypes({ typeRegistryRepo: typeRepo, orgId: payload.orgId });
 
     const file = await fileRepo.getFile({ orgId: payload.orgId, fileId: payload.fileId });
     if (!file) {
@@ -539,6 +535,8 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
     }
 
     // Fetch existing context for entity resolution
+    const allRegisteredTypes = await typeRepo.listTypes({ orgId: payload.orgId });
+    const activeTypes = allRegisteredTypes.filter((t) => t.status === "active");
     const existingTypes = await entityRepo.getAllEntityTypes({ orgId: payload.orgId });
     const existingEntities = await entityRepo.getEntitiesSummary({ orgId: payload.orgId, limit: 200 });
 
@@ -571,15 +569,16 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
             createdAtIso: t.createdAt,
           };
         },
-        createType: async ({ orgId, typeName, description, createdBy }) => {
-          await typeRepo.createType({ orgId, typeName, description, createdBy });
+        createType: async ({ orgId, typeName, description }) => {
+          await typeRepo.createType({ orgId, typeName, description, status: "draft", createdBy: "ai", properties: [] });
         },
       },
       context: {
-        existingTypes: existingTypes.map((t) => ({
+        existingTypes: activeTypes.map((t) => ({
           typeName: t.typeName,
           description: t.description,
-          entityCount: t.entityCount,
+          properties: t.properties,
+          entityCount: existingTypes.find((et) => et.typeName === t.typeName)?.entityCount,
         })),
         existingEntities: existingEntities.map((e) => ({
           entityId: e.entityId,
@@ -616,14 +615,16 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
       });
     }
 
-    // Register any new types that were created during enrichment
+    // Register any new types that were created during enrichment (as drafts for review)
     for (const newType of enrichment.createdTypes) {
       try {
         await typeRepo.createType({
           orgId: payload.orgId,
           typeName: newType.typeName,
           description: newType.description,
-          createdBy: payload.userId,
+          status: "draft",
+          createdBy: "ai",
+          properties: newType.suggestedProperties ?? [],
         });
         await logRepo.appendProcessingLog({
           orgId: payload.orgId,

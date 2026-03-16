@@ -68,6 +68,7 @@ export async function validateTypes(
         validNewTypes.push({
           typeName: normalized,
           description: proposed.description,
+          suggestedProperties: proposed.suggestedProperties ?? [],
         });
         decisions.push({
           level: "INFO",
@@ -142,6 +143,7 @@ export async function validateTypes(
         validNewTypes.push({
           typeName: entity.typeName,
           description: `Auto-created type for ${entity.typeName} entities`,
+          suggestedProperties: [],
         });
       }
     }

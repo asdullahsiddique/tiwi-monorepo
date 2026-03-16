@@ -624,4 +624,26 @@ DETACH DELETE source
       await session.close();
     }
   }
+
+  /**
+   * Delete all entities of a given type for an organization.
+   * Used when dismissing a draft type.
+   */
+  async deleteEntitiesByType(params: { orgId: string; typeName: string }): Promise<void> {
+    const label = sanitizeLabel(params.typeName);
+    const session = this.driver.session({ defaultAccessMode: "WRITE" });
+    try {
+      await session.executeWrite((tx) =>
+        tx.run(
+          `
+MATCH (e:${label} {orgId: $orgId})
+DETACH DELETE e
+          `,
+          { orgId: params.orgId },
+        ),
+      );
+    } finally {
+      await session.close();
+    }
+  }
 }

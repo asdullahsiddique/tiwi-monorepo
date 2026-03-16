@@ -1,4 +1,4 @@
-import type { DecisionLog } from "./types";
+import type { DecisionLog, ProposedType } from "./types";
 
 export type TypeRegistryStore = {
   getType: (params: { orgId: string; typeName: string }) => Promise<
@@ -21,13 +21,13 @@ export type TypeRegistryStore = {
 export async function ensureTypes(params: {
   orgId: string;
   userId: string;
-  proposedTypes: Array<{ typeName: string; description: string }>;
+  proposedTypes: ProposedType[];
   store: TypeRegistryStore;
 }): Promise<{
-  createdTypes: Array<{ typeName: string; description: string }>;
+  createdTypes: ProposedType[];
   decisions: DecisionLog[];
 }> {
-  const createdTypes: Array<{ typeName: string; description: string }> = [];
+  const createdTypes: ProposedType[] = [];
   const decisions: DecisionLog[] = [];
   const nowIso = new Date().toISOString();
 

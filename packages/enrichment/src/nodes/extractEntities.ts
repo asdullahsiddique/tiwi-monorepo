@@ -20,6 +20,7 @@ const EntityExtractionResponseSchema = z.object({
     z.object({
       typeName: z.string(),
       description: z.string(),
+      suggestedProperties: z.array(z.string()).default([]),
     })
   ).default([]),
 });
@@ -30,28 +31,53 @@ type EntityExtractionResponse = z.infer<typeof EntityExtractionResponseSchema>;
  * Build the system prompt for entity extraction.
  */
 function buildSystemPrompt(state: EnrichmentState): string {
-  const typesList = state.existingTypes.length > 0
-    ? state.existingTypes.map((t) => `- ${t.typeName}: ${t.description}`).join("\n")
-    : "No types registered yet.";
-
-  return `You are an expert entity extraction system. Your task is to extract all meaningful entities from the given text.
-
-## Available Entity Types
-These types already exist in our knowledge graph. PREFER using these types:
-${typesList}
+  if (state.existingTypes.length === 0) {
+    // Open mode: no active types defined yet — extract freely, all will become drafts
+    return `You are an expert entity extraction system. Your task is to extract all meaningful entities from the given text.
 
 ## Rules for Entity Extraction
 1. Extract ALL meaningful entities from the text (people, organizations, documents, amounts, dates, locations, etc.)
-2. Use the EXISTING types when they fit. Be flexible - "Nerd Camels FZCO" is an Organization.
-3. Only propose NEW types if absolutely necessary and no existing type fits.
-4. New type names must be PascalCase and singular (e.g., "Invoice" not "invoices")
-5. Include relevant properties for each entity (e.g., amounts, dates, IDs)
-6. Assign confidence scores (0-1) based on extraction certainty
+2. New type names must be PascalCase and singular (e.g., "Invoice" not "invoices")
+3. Include relevant properties for each entity (e.g., amounts, dates, IDs)
+4. Assign confidence scores (0-1) based on extraction certainty
+5. Propose new types for any entity types you encounter — all proposed types will be reviewed by the user
 
 ## Output Format
 Return a JSON object with:
 - entities: Array of extracted entities with typeName, name, properties, confidence
-- proposedTypes: Array of new types to create (only if needed) with typeName and description
+- proposedTypes: Array of new types with typeName, description, and suggestedProperties (array of property name strings)
+
+Extract entities thoroughly but avoid duplicates within the same document.`;
+  }
+
+  // Strict mode: org has active types — only extract those types
+  const typesList = state.existingTypes
+    .map((t) => {
+      const propHint = t.properties && t.properties.length > 0
+        ? ` (expected properties: ${t.properties.join(", ")})`
+        : "";
+      return `- ${t.typeName}${propHint}\n  ${t.description}`;
+    })
+    .join("\n");
+
+  return `You are an expert entity extraction system. Your task is to extract entities from the given text using ONLY the defined schema types.
+
+## Active Schema Types
+ONLY extract entities of these types. Do not invent new types unless truly necessary:
+${typesList}
+
+## Rules for Entity Extraction
+1. Extract entities that match the active schema types above
+2. Use the EXACT type names as listed — do not modify them
+3. Include relevant properties for each entity, especially the expected properties listed
+4. Assign confidence scores (0-1) based on extraction certainty
+5. Only propose a NEW type if you encounter an entity that genuinely cannot fit any existing type
+6. New type names must be PascalCase and singular
+
+## Output Format
+Return a JSON object with:
+- entities: Array of extracted entities with typeName, name, properties, confidence
+- proposedTypes: Array of genuinely new types (only if needed) with typeName, description, and suggestedProperties (array of property name strings)
 
 Extract entities thoroughly but avoid duplicates within the same document.`;
 }
@@ -85,6 +111,7 @@ export async function extractEntities(
       metadata: {
         textLength: state.text.length,
         existingTypesCount: state.existingTypes.length,
+        mode: state.existingTypes.length === 0 ? "open" : "strict",
       },
     },
   ];
@@ -161,6 +188,7 @@ ${state.text.slice(0, 25000)}`;
     const proposedTypes: ProposedType[] = parsed.proposedTypes.map((t) => ({
       typeName: t.typeName,
       description: t.description,
+      suggestedProperties: t.suggestedProperties,
     }));
 
     decisions.push({
@@ -182,9 +210,9 @@ ${state.text.slice(0, 25000)}`;
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    
+
     console.error("[extractEntities] Error:", errorMessage);
-    
+
     decisions.push({
       level: "WARN",
       message: `Entity extraction failed: ${errorMessage}`,

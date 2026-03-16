@@ -8,6 +8,7 @@ const nav: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", section: "Workspace" },
   { href: "/files", label: "Files", section: "Workspace" },
   { href: "/search", label: "Search", section: "Intelligence" },
+  { href: "/schema", label: "Schema", section: "Intelligence" },
 ];
 
 const sections = ["Workspace", "Intelligence"] as const;

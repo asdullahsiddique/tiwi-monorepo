@@ -4,9 +4,11 @@ export type TypeRegistryRecord = {
   orgId: string;
   typeName: string;
   description: string;
-  createdBy: string;
+  properties: string[];
+  status: 'active' | 'draft';
+  createdBy: 'user' | 'ai';
   createdAt: string;
-  isBuiltIn?: boolean;
+  updatedAt: string;
 };
 
 export class TypeRegistryRepository {
@@ -30,10 +32,12 @@ RETURN t
       return {
         orgId: props.orgId,
         typeName: props.typeName,
-        description: props.description,
-        createdBy: props.createdBy,
+        description: props.description ?? "",
+        properties: props.properties ?? [],
+        status: props.status ?? "active",
+        createdBy: props.createdBy ?? "user",
         createdAt: props.createdAt?.toString?.() ?? String(props.createdAt),
-        isBuiltIn: props.isBuiltIn ?? false,
+        updatedAt: props.updatedAt?.toString?.() ?? props.createdAt?.toString?.() ?? String(props.createdAt),
       };
     } finally {
       await session.close();
@@ -44,8 +48,9 @@ RETURN t
     orgId: string;
     typeName: string;
     description: string;
-    createdBy: string;
-    isBuiltIn?: boolean;
+    properties?: string[];
+    status?: 'active' | 'draft';
+    createdBy?: 'user' | 'ai';
   }): Promise<void> {
     const session = this.driver.session({ defaultAccessMode: "WRITE" });
     try {
@@ -55,14 +60,26 @@ RETURN t
 MERGE (t:TypeRegistry {orgId: $orgId, typeName: $typeName})
   ON CREATE SET
     t.description = $description,
+    t.properties = $properties,
+    t.status = $status,
     t.createdBy = $createdBy,
-    t.isBuiltIn = $isBuiltIn,
-    t.createdAt = datetime()
+    t.createdAt = datetime(),
+    t.updatedAt = datetime()
   ON MATCH SET
     t.description = coalesce(t.description, $description),
-    t.createdBy = coalesce(t.createdBy, $createdBy)
+    t.properties = coalesce(t.properties, $properties),
+    t.status = coalesce(t.status, $status),
+    t.createdBy = coalesce(t.createdBy, $createdBy),
+    t.updatedAt = datetime()
           `,
-          { ...params, isBuiltIn: params.isBuiltIn ?? false },
+          {
+            orgId: params.orgId,
+            typeName: params.typeName,
+            description: params.description,
+            properties: params.properties ?? [],
+            status: params.status ?? "active",
+            createdBy: params.createdBy ?? "user",
+          },
         ),
       );
     } finally {
@@ -78,7 +95,7 @@ MERGE (t:TypeRegistry {orgId: $orgId, typeName: $typeName})
           `
 MATCH (t:TypeRegistry {orgId: $orgId})
 RETURN t
-ORDER BY t.isBuiltIn DESC, t.typeName
+ORDER BY t.status ASC, t.typeName
           `,
           params,
         ),
@@ -88,15 +105,96 @@ ORDER BY t.isBuiltIn DESC, t.typeName
         return {
           orgId: props.orgId,
           typeName: props.typeName,
-          description: props.description,
-          createdBy: props.createdBy,
+          description: props.description ?? "",
+          properties: props.properties ?? [],
+          status: props.status ?? "active",
+          createdBy: props.createdBy ?? "user",
           createdAt: props.createdAt?.toString?.() ?? String(props.createdAt),
-          isBuiltIn: props.isBuiltIn ?? false,
+          updatedAt: props.updatedAt?.toString?.() ?? props.createdAt?.toString?.() ?? String(props.createdAt),
         };
       });
     } finally {
       await session.close();
     }
   }
-}
 
+  async updateType(params: {
+    orgId: string;
+    typeName: string;
+    description?: string;
+    properties?: string[];
+  }): Promise<void> {
+    const session = this.driver.session({ defaultAccessMode: "WRITE" });
+    try {
+      await session.executeWrite((tx) =>
+        tx.run(
+          `
+MATCH (t:TypeRegistry {orgId: $orgId, typeName: $typeName})
+SET t.updatedAt = datetime()
+${params.description !== undefined ? ", t.description = $description" : ""}
+${params.properties !== undefined ? ", t.properties = $properties" : ""}
+          `,
+          {
+            orgId: params.orgId,
+            typeName: params.typeName,
+            ...(params.description !== undefined ? { description: params.description } : {}),
+            ...(params.properties !== undefined ? { properties: params.properties } : {}),
+          },
+        ),
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async deleteType(params: { orgId: string; typeName: string }): Promise<void> {
+    const session = this.driver.session({ defaultAccessMode: "WRITE" });
+    try {
+      await session.executeWrite((tx) =>
+        tx.run(
+          `
+MATCH (t:TypeRegistry {orgId: $orgId, typeName: $typeName})
+DETACH DELETE t
+          `,
+          params,
+        ),
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async confirmDraftType(params: { orgId: string; typeName: string }): Promise<void> {
+    const session = this.driver.session({ defaultAccessMode: "WRITE" });
+    try {
+      await session.executeWrite((tx) =>
+        tx.run(
+          `
+MATCH (t:TypeRegistry {orgId: $orgId, typeName: $typeName})
+SET t.status = 'active', t.updatedAt = datetime()
+          `,
+          params,
+        ),
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async dismissDraftType(params: { orgId: string; typeName: string }): Promise<void> {
+    const session = this.driver.session({ defaultAccessMode: "WRITE" });
+    try {
+      await session.executeWrite((tx) =>
+        tx.run(
+          `
+MATCH (t:TypeRegistry {orgId: $orgId, typeName: $typeName})
+DETACH DELETE t
+          `,
+          params,
+        ),
+      );
+    } finally {
+      await session.close();
+    }
+  }
+}

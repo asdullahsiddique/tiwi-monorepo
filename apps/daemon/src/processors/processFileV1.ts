@@ -478,12 +478,17 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
     }
 
     const trimmed = extractedText.trim();
+
+    // For image-heavy or design files where GPT returns a summary but no raw text,
+    // fall back to the summary so embeddings and entity extraction have something to work with.
+    const textForEnrichment = trimmed.length > 100 ? trimmed : summary ?? trimmed;
+
     await artifactRepo.setFileSummary({ orgId: payload.orgId, fileId: payload.fileId, summary });
 
     // Embeddings (mandatory for semantic retrieval) — best-effort if OpenAI is configured.
     if (env.OPENAI_API_KEY) {
       const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-      const chunks = chunkText(trimmed.slice(0, 100_000), { size: 1200, overlap: 200 });
+      const chunks = chunkText(textForEnrichment.slice(0, 100_000), { size: 1200, overlap: 200 });
 
       for (let idx = 0; idx < chunks.length; idx++) {
         const text = chunks[idx]!;
@@ -567,7 +572,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
       orgId: payload.orgId,
       userId: payload.userId,
       fileId: payload.fileId,
-      text: trimmed.slice(0, 25_000),
+      text: textForEnrichment.slice(0, 25_000),
       typeRegistryStore: {
         getType: async ({ orgId, typeName }) => {
           const t = await typeRepo.getType({ orgId, typeName });

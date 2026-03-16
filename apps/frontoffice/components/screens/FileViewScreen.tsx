@@ -392,11 +392,27 @@ export function FileViewScreen(props: {
                     <div className="flex h-32 items-center justify-center p-6">
                       <audio src={props.previewUrl ?? props.downloadUrl!} controls className="w-full" />
                     </div>
-                  ) : (
+                  ) : props.contentType === "application/pdf" ? (
                     <iframe
                       className="h-[520px] w-full"
                       src={props.previewUrl ?? props.downloadUrl!}
                     />
+                  ) : (
+                    <div className="flex h-32 flex-col items-center justify-center gap-3 p-6 text-center">
+                      <div className="text-sm text-[var(--muted)]">
+                        Preview not available for <span className="font-medium">{props.contentType}</span>
+                      </div>
+                      {props.downloadUrl && (
+                        <a
+                          href={props.downloadUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full border border-[color:var(--border)] bg-[var(--surface-2)] px-4 py-2 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-3)]"
+                        >
+                          Download to view
+                        </a>
+                      )}
+                    </div>
                   )}
                 </div>
               ) : (

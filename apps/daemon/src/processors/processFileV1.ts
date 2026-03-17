@@ -126,6 +126,15 @@ function isTextBasedFile(contentType: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Logger
+// ---------------------------------------------------------------------------
+function log(level: "INFO" | "WARN" | "ERROR", message: string, meta?: Record<string, unknown>) {
+  const line = JSON.stringify({ ts: new Date().toISOString(), level, message, fileId: meta?.fileId, ...meta });
+  if (level === "ERROR") console.error(line);
+  else console.log(line);
+}
+
+// ---------------------------------------------------------------------------
 // Main processor
 // ---------------------------------------------------------------------------
 
@@ -144,11 +153,13 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
     const entityRepo = new EntityRepository(driver);
 
     const file = await fileRepo.getFile({ orgId: payload.orgId, fileId: payload.fileId });
-    if (!file) return;
+    if (!file) { log("WARN", "File not found, aborting", { fileId: payload.fileId }); return; }
 
+    log("INFO", "Downloading file from S3", { fileId: file.fileId, contentType: file.contentType, objectKey: file.objectKey });
     const { client: s3, bucket } = createS3Client();
     const obj = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: file.objectKey }));
     const body = await streamToBuffer(obj.Body);
+    log("INFO", "File downloaded", { fileId: file.fileId, sizeBytes: body.length });
 
     let extractedText = "";
     let summary = "";
@@ -256,6 +267,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
       });
 
       try {
+        log("INFO", "GPT-4o: starting document text extraction", { fileId: file.fileId, sizeBytes: body.length });
         const extractionResponse = await (openai as any).responses.create({
           model: "gpt-4o",
           max_output_tokens: 8000,
@@ -274,6 +286,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
         }, { timeout: 180_000 });
 
         extractedText = (extractionResponse.output_text ?? "").trim();
+        log("INFO", "GPT-4o: document text extraction complete", { fileId: file.fileId, extractedLength: extractedText.length, inputTokens: extractionResponse.usage?.input_tokens, outputTokens: extractionResponse.usage?.output_tokens });
 
         const inTok = extractionResponse.usage?.input_tokens ?? 0;
         const outTok = extractionResponse.usage?.output_tokens ?? 0;
@@ -287,6 +300,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        log("WARN", "GPT-4o: document text extraction failed", { fileId: file.fileId, error: msg });
         await logRepo.appendProcessingLog({
           orgId: payload.orgId, fileId: payload.fileId, logId: nanoid(),
           level: "WARN",
@@ -540,6 +554,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
       ? extractedText.trim()
       : summary;
 
+    log("INFO", "Stage 2: persisting summary and generating embeddings", { fileId: file.fileId, extractedLength: extractedText.length, summaryLength: summary.length, enrichmentSource: extractedText.trim().length > 100 ? "extractedText" : "summary" });
     await artifactRepo.setFileSummary({ orgId: payload.orgId, fileId: payload.fileId, summary });
 
     if (env.OPENAI_API_KEY) {
@@ -599,6 +614,8 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
     const activeTypes = allRegisteredTypes.filter((t) => t.status === "active");
     const existingTypes = await entityRepo.getAllEntityTypes({ orgId: payload.orgId });
     const existingEntities = await entityRepo.getEntitiesSummary({ orgId: payload.orgId, limit: 200 });
+
+    log("INFO", "Stage 3: starting LangGraph enrichment", { fileId: file.fileId, textLength: textForEnrichment.slice(0, 25_000).length, activeTypes: activeTypes.length, existingEntities: existingEntities.length });
 
     await logRepo.appendProcessingLog({
       orgId: payload.orgId, fileId: payload.fileId, logId: nanoid(),
@@ -712,6 +729,14 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
         sourceFileId: payload.fileId,
       });
     }
+
+    log("INFO", "Processing pipeline complete", {
+      fileId: file.fileId,
+      entities: enrichment.entities.length,
+      relationships: enrichment.relationships.length,
+      draftTypes: enrichment.createdTypes.length,
+      resolvedMatches: enrichment.resolvedMatches?.length ?? 0,
+    });
 
     await logRepo.appendProcessingLog({
       orgId: payload.orgId, fileId: payload.fileId, logId: nanoid(),

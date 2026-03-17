@@ -7,6 +7,12 @@ import { getDaemonEnv } from "./env";
 import { JOB_PROCESS_FILE_V1, ProcessFileV1Payload, QUEUE_NAME } from "./jobs/types";
 import { processFileV1 } from "./processors/processFileV1";
 
+function log(level: "INFO" | "WARN" | "ERROR", message: string, meta?: Record<string, unknown>) {
+  const line = JSON.stringify({ ts: new Date().toISOString(), level, message, ...meta });
+  if (level === "ERROR") console.error(line);
+  else console.log(line);
+}
+
 function formatErrorMessage(err: unknown): string {
   if (err instanceof ZodError) {
     // Format Zod validation errors in a readable way
@@ -28,8 +34,10 @@ export async function startWorker(): Promise<void> {
   // Configure LangSmith tracing if enabled
   configureLangSmith();
 
+  log("INFO", "Connecting to Neo4j and ensuring schema");
   const driver = createNeo4jDriver();
   await ensureNeo4jSchema(driver);
+  log("INFO", "Neo4j schema ready");
 
   const fileRepo = new FileRepository(driver);
   const logRepo = new LogRepository(driver);
@@ -40,6 +48,7 @@ export async function startWorker(): Promise<void> {
       if (job.name !== JOB_PROCESS_FILE_V1) return;
 
       const { orgId, fileId } = job.data;
+      log("INFO", "Job picked up", { jobId: job.id, orgId, fileId, name: job.name });
       await fileRepo.updateStatus({ orgId, fileId, status: "PROCESSING" });
       await logRepo.appendProcessingLog({
         orgId,
@@ -53,6 +62,7 @@ export async function startWorker(): Promise<void> {
       try {
         await processFileV1(job.data);
 
+        log("INFO", "Job completed successfully", { jobId: job.id, orgId, fileId });
         await logRepo.appendProcessingLog({
           orgId,
           fileId,
@@ -64,6 +74,7 @@ export async function startWorker(): Promise<void> {
       } catch (err) {
         const errorMessage = formatErrorMessage(err);
         const errorStack = err instanceof Error ? err.stack : undefined;
+        log("ERROR", "Job failed", { jobId: job.id, orgId, fileId, error: errorMessage, stack: errorStack });
         const errorDetails = err instanceof ZodError 
           ? { zodIssues: err.issues } 
           : undefined;
@@ -98,6 +109,14 @@ export async function startWorker(): Promise<void> {
       lockDuration: 120_000,
     },
   );
+
+  worker.on("error", (err) => {
+    log("ERROR", "Worker error", { error: err.message, stack: err.stack });
+  });
+
+  worker.on("stalled", (jobId) => {
+    log("WARN", "Job stalled", { jobId });
+  });
 
   worker.on("failed", async (job, err) => {
     const orgId = (job?.data as any)?.orgId;

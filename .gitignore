@@ -43,3 +43,6 @@ logs/
 
 .vercel
 .env*.local
+
+# Git worktrees
+.worktrees/

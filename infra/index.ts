@@ -165,6 +165,30 @@ new aws.iam.RolePolicy("task-s3", {
   }),
 });
 
+// ─── IAM User for Vercel (presigned URL signing) ──────────────────────────────
+// Vercel cannot use IAM roles, so we create a least-privilege IAM user that can
+// only sign presigned URLs (PutObject for uploads, GetObject for downloads).
+const vercelUser = new aws.iam.User("vercel-s3-user", {
+  name: "tiwi-vercel-s3",
+  tags: { Name: "tiwi-vercel-s3" },
+});
+
+new aws.iam.UserPolicy("vercel-s3-policy", {
+  user: vercelUser.name,
+  policy: pulumi.jsonStringify({
+    Version: "2012-10-17",
+    Statement: [{
+      Effect: "Allow",
+      Action: ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      Resource: pulumi.interpolate`${filesBucket.arn}/*`,
+    }],
+  }),
+});
+
+const vercelAccessKey = new aws.iam.AccessKey("vercel-s3-key", {
+  user: vercelUser.name,
+});
+
 // ─── ECS Cluster ──────────────────────────────────────────────────────────────
 const cluster = new aws.ecs.Cluster("cluster", {
   name: "tiwi",
@@ -236,6 +260,9 @@ new aws.ecs.Service("daemon", {
 });
 
 // ─── Outputs ──────────────────────────────────────────────────────────────────
-export const s3BucketName = filesBucket.id;
-export const clusterName  = cluster.name;
-export const daemonEcrUri = daemonRepo.repositoryUrl;
+export const s3BucketName        = filesBucket.id;
+export const clusterName         = cluster.name;
+export const daemonEcrUri        = daemonRepo.repositoryUrl;
+// Add these to Vercel environment variables:
+export const vercelS3AccessKeyId     = vercelAccessKey.id;
+export const vercelS3SecretAccessKey = vercelAccessKey.secret;

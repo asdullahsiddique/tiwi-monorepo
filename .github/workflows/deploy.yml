@@ -58,6 +58,12 @@ jobs:
           pulumi config set --secret tiwi:redisUrl         "${{ secrets.REDIS_URL }}"
           pulumi config set --secret tiwi:assemblyAiApiKey "${{ secrets.ASSEMBLYAI_API_KEY }}"
 
+      - name: Cancel any pending Pulumi update
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: pulumi cancel --stack tiwi/prod --yes || true
+
       - name: Pulumi up
         uses: pulumi/actions@v6
         with:

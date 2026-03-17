@@ -1,0 +1,62 @@
+name: Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy:
+    name: Pulumi destroy
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'destroy'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-central-1
+
+      - name: Set Pulumi stack config
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi stack select tiwi/prod --create
+          pulumi config set aws:region eu-central-1
+          pulumi config set --secret tiwi:openAiApiKey     "${{ secrets.OPENAI_API_KEY }}"
+          pulumi config set --secret tiwi:neo4jUri         "${{ secrets.NEO4J_URI }}"
+          pulumi config set --secret tiwi:neo4jPassword    "${{ secrets.NEO4J_PASSWORD }}"
+          pulumi config set --secret tiwi:redisUrl         "${{ secrets.REDIS_URL }}"
+          pulumi config set --secret tiwi:assemblyAiApiKey "${{ secrets.ASSEMBLYAI_API_KEY }}"
+
+      - name: Pulumi destroy
+        uses: pulumi/actions@v6
+        with:
+          command: destroy
+          stack-name: tiwi/prod
+          work-dir: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          AWS_DEFAULT_REGION: eu-central-1

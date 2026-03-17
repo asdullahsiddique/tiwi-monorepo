@@ -254,7 +254,8 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
 
     } else if (isDocumentFile(file.contentType) && env.OPENAI_API_KEY) {
       // --- Documents (PDF, DOCX, PPT): two focused GPT calls ---
-      const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+      // Timeout set at client level — more reliable than per-request options on `as any` calls
+      const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: 180_000 });
       const base64Content = body.toString("base64");
       const dataUrl = `data:${file.contentType};base64,${base64Content}`;
 
@@ -283,7 +284,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
               ],
             },
           ],
-        }, { timeout: 180_000 });
+        });
 
         extractedText = (extractionResponse.output_text ?? "").trim();
         log("INFO", "GPT-4o: document text extraction complete", { fileId: file.fileId, extractedLength: extractedText.length, inputTokens: extractionResponse.usage?.input_tokens, outputTokens: extractionResponse.usage?.output_tokens });
@@ -369,7 +370,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
                 ],
               },
             ],
-          }, { timeout: 120_000 });
+          });
           summary = (visualSummaryResponse.output_text ?? "").trim() || "No summary generated.";
           const inTok = visualSummaryResponse.usage?.input_tokens ?? 0;
           const outTok = visualSummaryResponse.usage?.output_tokens ?? 0;

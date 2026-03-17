@@ -32,28 +32,56 @@ function parseMarkdownTables(text: string): ParsedTable[] {
 // AI table-to-entity mapping
 // ---------------------------------------------------------------------------
 
+// typeName can be top-level (preferred) or per-entity (fallback for models that disagree)
+const TableEntitySchema = z.object({
+  name: z.string().min(1),
+  typeName: z.string().min(1).max(64).optional(),
+  properties: z.record(z.unknown()).default({}),
+});
+
 const TableMappingSchema = z.object({
-  typeName: z.string().min(1).max(64),
+  typeName: z.string().min(1).max(64).optional(),
   isNewType: z.boolean().default(false),
   description: z.string().optional(),
   suggestedProperties: z.array(z.string()).default([]),
-  entities: z.array(
-    z.object({
-      name: z.string().min(1),
-      properties: z.record(z.unknown()).default({}),
-    }),
-  ),
+  entities: z.array(TableEntitySchema),
 });
 
 type TableMapping = z.infer<typeof TableMappingSchema>;
 
+/** Resolve a typeName from the top-level field or fall back to the most common per-entity one. */
+function resolveTypeName(mapped: TableMapping, headers: string[]): string {
+  if (mapped.typeName) return mapped.typeName;
+  // Fall back to per-entity typeName (take the first non-empty one)
+  const perEntity = mapped.entities.find((e) => e.typeName)?.typeName;
+  if (perEntity) return perEntity;
+  // Last resort: derive from headers (e.g. "Position | Driver | Team" → "DriverResult")
+  return headers.length > 0
+    ? headers[0]!.replace(/\s+/g, "") + "Row"
+    : "TableRow";
+}
+
+const EXPECTED_JSON_SHAPE = `{
+  "typeName": "PascalCaseTypeName",
+  "isNewType": true,
+  "description": "One-sentence description of what each row represents",
+  "suggestedProperties": ["prop1", "prop2"],
+  "entities": [
+    { "name": "<most identifying cell>", "properties": { "<col2>": "<val>", "<col3>": "<val>" } }
+  ]
+}`;
+
 function buildTableSystemPrompt(existingTypes: EnrichmentState["existingTypes"]): string {
+  const shapeNote =
+    `\nYou MUST return a JSON object with EXACTLY this shape:\n${EXPECTED_JSON_SHAPE}\n` +
+    "All rows represent the SAME entity type — choose ONE typeName for the entire table.\n";
+
   if (existingTypes.length === 0) {
     return (
-      "You are a data extraction assistant. Map the rows of this table to Neo4j entities.\n" +
+      "You are a data extraction assistant. Map ALL rows of this table to Neo4j entities.\n" +
       "No schema is defined — propose an appropriate PascalCase type name based on the table content.\n" +
-      "For each row create one entity with name (most identifying cell) and properties (all other columns).\n" +
-      "Return valid JSON only."
+      "For each row create one entity: name = the most identifying cell, properties = all other columns.\n" +
+      shapeNote
     );
   }
 
@@ -65,16 +93,14 @@ function buildTableSystemPrompt(existingTypes: EnrichmentState["existingTypes"])
     .join("\n");
 
   return (
-    "You are a data extraction assistant. Map the rows of this table to Neo4j entities.\n\n" +
+    "You are a data extraction assistant. Map ALL rows of this table to Neo4j entities.\n\n" +
     "Active schema types you MUST prefer:\n" +
     typesList +
     "\n\nInstructions:\n" +
-    "1. Pick the best-matching type from the active schema. Match by column names → property names.\n" +
+    "1. Pick the best-matching type from the active schema. Match column names → property names.\n" +
     "2. If no type fits, propose a new PascalCase type (isNewType: true).\n" +
-    "3. For each row create one entity:\n" +
-    "   - name: the most identifying cell (primary key / unique label)\n" +
-    "   - properties: remaining columns mapped to property names\n" +
-    "4. Return valid JSON only."
+    "3. For each row create one entity: name = the most identifying cell, properties = all other columns.\n" +
+    shapeNote
   );
 }
 
@@ -82,7 +108,7 @@ function buildTableUserPrompt(table: ParsedTable): string {
   return (
     `Table headers: ${table.headers.join(" | ")}\n\n` +
     `Rows:\n${table.rows.map((r) => r.join(" | ")).join("\n")}\n\n` +
-    "Map each row to an entity. Return JSON."
+    "Return the JSON object as specified."
   );
 }
 
@@ -180,10 +206,12 @@ export async function extractTableEntities(
         createdAtIso: callNow,
       });
 
+      const typeName = resolveTypeName(mapped, table.headers);
+
       // Collect proposed type if new
       if (mapped.isNewType && mapped.description) {
         proposedTypes.push({
-          typeName: mapped.typeName,
+          typeName,
           description: mapped.description,
           suggestedProperties: mapped.suggestedProperties,
         });
@@ -192,7 +220,7 @@ export async function extractTableEntities(
       // Map rows to entities
       for (const row of mapped.entities) {
         entities.push({
-          typeName: mapped.typeName,
+          typeName,
           name: row.name,
           properties: row.properties as Record<string, unknown>,
           confidence: 0.85,
@@ -201,10 +229,10 @@ export async function extractTableEntities(
 
       decisions.push({
         level: "INFO",
-        message: `Table ${i + 1}: mapped ${mapped.entities.length} rows → ${mapped.typeName}${mapped.isNewType ? " (new type)" : ""}`,
+        message: `Table ${i + 1}: mapped ${mapped.entities.length} rows → ${typeName}${mapped.isNewType ? " (new type)" : ""}`,
         createdAtIso: callNow,
         metadata: {
-          typeName: mapped.typeName,
+          typeName,
           isNewType: mapped.isNewType,
           headers: table.headers,
           entityCount: mapped.entities.length,

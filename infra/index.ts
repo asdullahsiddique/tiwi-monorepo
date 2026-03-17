@@ -111,17 +111,17 @@ function smSecret(
 }
 
 const neo4jSecret = smSecret(
-  "neo4j-secret", "tiwi/neo4j",
+  "neo4j-secret", "tiwi/neo4j-v2",
   pulumi.jsonStringify({ NEO4J_URI: neo4jUri, NEO4J_USERNAME: "neo4j", NEO4J_PASSWORD: neo4jPassword }),
 );
 
 const openAiSecret = smSecret(
-  "openai-secret", "tiwi/openai",
+  "openai-secret", "tiwi/openai-v2",
   pulumi.jsonStringify({ OPENAI_API_KEY: openAiApiKey }),
 );
 
 const assemblyAiSecret = smSecret(
-  "assemblyai-secret", "tiwi/assemblyai",
+  "assemblyai-secret", "tiwi/assemblyai-v2",
   pulumi.jsonStringify({ ASSEMBLYAI_API_KEY: assemblyAiApiKey }),
 );
 

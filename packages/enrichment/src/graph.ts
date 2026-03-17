@@ -1,6 +1,7 @@
 import { StateGraph, END, START } from "@langchain/langgraph";
 import { EnrichmentStateAnnotation, type EnrichmentState } from "./state";
 import { extractEntities } from "./nodes/extractEntities";
+import { extractTableEntities } from "./nodes/extractTableEntities";
 import { resolveEntities } from "./nodes/resolveEntities";
 import { extractRelationships } from "./nodes/extractRelationships";
 import { validateTypes } from "./nodes/validateTypes";
@@ -16,12 +17,13 @@ function shouldRetry(state: EnrichmentState): "extractEntities" | "__end__" {
 
 /**
  * Build and compile the enrichment graph.
- * 
+ *
  * Graph flow (linear, with internal conditional logic in each node):
- * START -> extractEntities -> validateTypes -> resolveEntities -> extractRelationships -> validateOutput -> [retry?] -> END
- * 
+ * START -> extractEntities -> validateTypes -> extractTableEntities -> resolveEntities -> extractRelationships -> validateOutput -> [retry?] -> END
+ *
  * Each node handles its own conditional logic:
  * - validateTypes: skips if no proposed types
+ * - extractTableEntities: parses markdown tables from extracted text, maps rows to entities
  * - resolveEntities: skips if no existing entities to match against
  * - validateOutput: determines if retry is needed
  */
@@ -30,14 +32,16 @@ export function buildEnrichmentGraph() {
     // Add all nodes
     .addNode("extractEntities", extractEntities)
     .addNode("validateTypes", validateTypes)
+    .addNode("extractTableEntities", extractTableEntities)
     .addNode("resolveEntities", resolveEntities)
     .addNode("extractRelationships", extractRelationships)
     .addNode("validateOutput", validateOutput)
-    
+
     // Linear flow: each node decides internally what to do
     .addEdge(START, "extractEntities")
     .addEdge("extractEntities", "validateTypes")
-    .addEdge("validateTypes", "resolveEntities")
+    .addEdge("validateTypes", "extractTableEntities")
+    .addEdge("extractTableEntities", "resolveEntities")
     .addEdge("resolveEntities", "extractRelationships")
     .addEdge("extractRelationships", "validateOutput")
     .addConditionalEdges("validateOutput", shouldRetry, {

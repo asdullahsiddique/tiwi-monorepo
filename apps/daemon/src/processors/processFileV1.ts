@@ -1,5 +1,6 @@
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import OpenAI from "openai";
+import { PDFDocument } from "pdf-lib";
 import { AssemblyAI } from "assemblyai";
 import { nanoid } from "nanoid";
 import {
@@ -42,6 +43,39 @@ async function streamToBuffer(stream: any): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(Buffer.from(chunk));
   return Buffer.concat(chunks);
+}
+
+// ---------------------------------------------------------------------------
+// PDF extraction prompt (used for both single-shot and chunked paths)
+// ---------------------------------------------------------------------------
+const EXTRACTION_PROMPT =
+  "Extract all content from this document. " +
+  "For tables, output them as GitHub-flavored markdown tables — preserve all column headers, " +
+  "rows, and cell values exactly as they appear. " +
+  "For regular text and headings, output verbatim. " +
+  "Return only the extracted content — no commentary, no JSON wrapper. " +
+  "If the document is primarily visual with minimal text, describe what is visible.";
+
+// ---------------------------------------------------------------------------
+// PDF chunking
+// ---------------------------------------------------------------------------
+const PAGES_PER_CHUNK = 15;
+
+async function splitPdfIntoChunks(
+  buf: Buffer,
+  pageSize: number,
+): Promise<{ chunks: Buffer[]; totalPages: number }> {
+  const src = await PDFDocument.load(buf);
+  const total = src.getPageCount();
+  const chunks: Buffer[] = [];
+  for (let s = 0; s < total; s += pageSize) {
+    const end = Math.min(s + pageSize, total);
+    const doc = await PDFDocument.create();
+    const pages = await doc.copyPages(src, Array.from({ length: end - s }, (_, i) => s + i));
+    pages.forEach((p) => doc.addPage(p));
+    chunks.push(Buffer.from(await doc.save()));
+  }
+  return { chunks, totalPages: total };
 }
 
 function chunkText(text: string, opts: { size: number; overlap: number }): string[] {
@@ -256,59 +290,131 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
       // --- Documents (PDF, DOCX, PPT): two focused GPT calls ---
       // Timeout set at client level — more reliable than per-request options on `as any` calls
       const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: 180_000 });
-      const base64Content = body.toString("base64");
-      const dataUrl = `data:${file.contentType};base64,${base64Content}`;
+
+      // Attempt to split PDFs into chunks (≤15 pages each) to avoid Responses API timeouts
+      let pdfChunks: Buffer[] | null = null;
+      let totalPages = 0;
+      if (file.contentType === "application/pdf") {
+        try {
+          const split = await splitPdfIntoChunks(body, PAGES_PER_CHUNK);
+          totalPages = split.totalPages;
+          if (split.totalPages > PAGES_PER_CHUNK) {
+            pdfChunks = split.chunks;
+            log("INFO", "Large PDF — processing in chunks", {
+              fileId: file.fileId, totalPages, chunks: split.chunks.length,
+            });
+          }
+        } catch {
+          // Encrypted / corrupted PDF — fall through to single-shot
+        }
+      }
 
       // Step 1: Extract raw text (GPT-4o, focused — no summarization)
       await logRepo.appendProcessingLog({
         orgId: payload.orgId, fileId: payload.fileId, logId: nanoid(),
         level: "INFO",
         message: "Step 1/2 — Extracting text from document (GPT-4o)",
-        metadata: { contentType: file.contentType, sizeBytes: body.length },
+        metadata: { contentType: file.contentType, sizeBytes: body.length, chunked: pdfChunks !== null },
       });
 
-      try {
-        log("INFO", "GPT-4o: starting document text extraction", { fileId: file.fileId, sizeBytes: body.length });
-        const extractionResponse = await (openai as any).responses.create({
-          model: "gpt-4o",
-          max_output_tokens: 8000,
-          input: [
-            {
-              role: "user",
-              content: [
-                { type: "input_file", filename: file.originalName, file_data: dataUrl },
+      if (pdfChunks !== null) {
+        // --- Chunked path: one API call per chunk ---
+        const textParts: string[] = [];
+        for (let i = 0; i < pdfChunks.length; i++) {
+          const chunk = pdfChunks[i]!;
+          const startPage = i * PAGES_PER_CHUNK + 1;
+          const endPage = Math.min((i + 1) * PAGES_PER_CHUNK, totalPages);
+          const chunkDataUrl = `data:application/pdf;base64,${chunk.toString("base64")}`;
+          const chunkPrompt = `Pages ${startPage}–${endPage} of ${totalPages}. ${EXTRACTION_PROMPT}`;
+
+          try {
+            log("INFO", `GPT-4o chunk ${i + 1}/${pdfChunks.length}: extracting pages ${startPage}–${endPage}`, { fileId: file.fileId });
+            const chunkResponse = await (openai as any).responses.create({
+              model: "gpt-4o",
+              max_output_tokens: 8000,
+              input: [
                 {
-                  type: "input_text",
-                  text: "Extract all text verbatim from this document. Return only the raw text content — no commentary, no formatting, no JSON wrapper. If the document is primarily visual/graphical with minimal readable text, return whatever text is visible.",
+                  role: "user",
+                  content: [
+                    { type: "input_file", filename: `${file.originalName}-chunk${i + 1}.pdf`, file_data: chunkDataUrl },
+                    { type: "input_text", text: chunkPrompt },
+                  ],
                 },
               ],
-            },
-          ],
-        });
+            });
 
-        extractedText = (extractionResponse.output_text ?? "").trim();
-        log("INFO", "GPT-4o: document text extraction complete", { fileId: file.fileId, extractedLength: extractedText.length, inputTokens: extractionResponse.usage?.input_tokens, outputTokens: extractionResponse.usage?.output_tokens });
+            const chunkText = (chunkResponse.output_text ?? "").trim();
+            textParts.push(chunkText);
+            log("INFO", `GPT-4o chunk ${i + 1}/${pdfChunks.length}: done`, { fileId: file.fileId, extractedLength: chunkText.length });
 
-        const inTok = extractionResponse.usage?.input_tokens ?? 0;
-        const outTok = extractionResponse.usage?.output_tokens ?? 0;
-        await logRepo.appendAIExecutionLog({
-          orgId: payload.orgId, fileId: payload.fileId, logId: nanoid(),
-          model: "gpt-4o",
-          inputTokens: inTok, outputTokens: outTok, totalTokens: inTok + outTok,
-          costUsd: estimateCostUsd({ inputTokens: inTok, outputTokens: outTok, priceInputPer1M: GPT4O_PRICE.input, priceOutputPer1M: GPT4O_PRICE.output }),
-          purpose: "extraction:document",
-          metadata: { contentType: file.contentType, extractedLength: extractedText.length },
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        log("WARN", "GPT-4o: document text extraction failed", { fileId: file.fileId, error: msg });
-        await logRepo.appendProcessingLog({
-          orgId: payload.orgId, fileId: payload.fileId, logId: nanoid(),
-          level: "WARN",
-          message: `Document text extraction failed: ${msg}`,
-          metadata: { error: msg },
-        });
-        extractedText = "";
+            const inTok = chunkResponse.usage?.input_tokens ?? 0;
+            const outTok = chunkResponse.usage?.output_tokens ?? 0;
+            await logRepo.appendAIExecutionLog({
+              orgId: payload.orgId, fileId: payload.fileId, logId: nanoid(),
+              model: "gpt-4o",
+              inputTokens: inTok, outputTokens: outTok, totalTokens: inTok + outTok,
+              costUsd: estimateCostUsd({ inputTokens: inTok, outputTokens: outTok, priceInputPer1M: GPT4O_PRICE.input, priceOutputPer1M: GPT4O_PRICE.output }),
+              purpose: "extraction:document:chunk",
+              metadata: { contentType: file.contentType, chunk: i + 1, totalChunks: pdfChunks.length, startPage, endPage },
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log("WARN", `GPT-4o chunk ${i + 1}/${pdfChunks.length}: failed`, { fileId: file.fileId, error: msg });
+            await logRepo.appendProcessingLog({
+              orgId: payload.orgId, fileId: payload.fileId, logId: nanoid(),
+              level: "WARN",
+              message: `Document chunk ${i + 1}/${pdfChunks.length} extraction failed: ${msg}`,
+              metadata: { error: msg, chunk: i + 1 },
+            });
+          }
+        }
+        extractedText = textParts.filter(Boolean).join("\n\n");
+        log("INFO", "GPT-4o: chunked document text extraction complete", { fileId: file.fileId, extractedLength: extractedText.length, chunks: pdfChunks.length });
+      } else {
+        // --- Single-shot path (≤15 pages or non-PDF) ---
+        const base64Content = body.toString("base64");
+        const dataUrl = `data:${file.contentType};base64,${base64Content}`;
+
+        try {
+          log("INFO", "GPT-4o: starting document text extraction", { fileId: file.fileId, sizeBytes: body.length });
+          const extractionResponse = await (openai as any).responses.create({
+            model: "gpt-4o",
+            max_output_tokens: 8000,
+            input: [
+              {
+                role: "user",
+                content: [
+                  { type: "input_file", filename: file.originalName, file_data: dataUrl },
+                  { type: "input_text", text: EXTRACTION_PROMPT },
+                ],
+              },
+            ],
+          });
+
+          extractedText = (extractionResponse.output_text ?? "").trim();
+          log("INFO", "GPT-4o: document text extraction complete", { fileId: file.fileId, extractedLength: extractedText.length, inputTokens: extractionResponse.usage?.input_tokens, outputTokens: extractionResponse.usage?.output_tokens });
+
+          const inTok = extractionResponse.usage?.input_tokens ?? 0;
+          const outTok = extractionResponse.usage?.output_tokens ?? 0;
+          await logRepo.appendAIExecutionLog({
+            orgId: payload.orgId, fileId: payload.fileId, logId: nanoid(),
+            model: "gpt-4o",
+            inputTokens: inTok, outputTokens: outTok, totalTokens: inTok + outTok,
+            costUsd: estimateCostUsd({ inputTokens: inTok, outputTokens: outTok, priceInputPer1M: GPT4O_PRICE.input, priceOutputPer1M: GPT4O_PRICE.output }),
+            purpose: "extraction:document",
+            metadata: { contentType: file.contentType, extractedLength: extractedText.length },
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log("WARN", "GPT-4o: document text extraction failed", { fileId: file.fileId, error: msg });
+          await logRepo.appendProcessingLog({
+            orgId: payload.orgId, fileId: payload.fileId, logId: nanoid(),
+            level: "WARN",
+            message: `Document text extraction failed: ${msg}`,
+            metadata: { error: msg },
+          });
+          extractedText = "";
+        }
       }
 
       // Step 2: Summarize
@@ -354,6 +460,9 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
         }
       } else {
         // Visual summary via GPT-4o Responses API (image-heavy / design doc)
+        // Use first chunk (or full body for non-chunked) to avoid re-timing-out on a 50+ page PDF
+        const visualSourceBuf = pdfChunks?.[0] ?? body;
+        const visualDataUrl = `data:${file.contentType};base64,${visualSourceBuf.toString("base64")}`;
         try {
           const visualSummaryResponse = await (openai as any).responses.create({
             model: "gpt-4o",
@@ -362,7 +471,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
               {
                 role: "user",
                 content: [
-                  { type: "input_file", filename: file.originalName, file_data: dataUrl },
+                  { type: "input_file", filename: file.originalName, file_data: visualDataUrl },
                   {
                     type: "input_text",
                     text: "Describe the content of this document in 2-3 paragraphs. Focus on key information, themes, people, organizations, data, and any notable elements you can observe.",

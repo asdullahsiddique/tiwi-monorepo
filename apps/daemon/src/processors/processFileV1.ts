@@ -168,6 +168,24 @@ function log(level: "INFO" | "WARN" | "ERROR", message: string, meta?: Record<st
   else console.log(line);
 }
 
+/** Logs a heartbeat every `intervalMs` while `fn` is running. Clears itself when done. */
+async function withHeartbeat<T>(
+  label: string,
+  meta: Record<string, unknown>,
+  fn: () => Promise<T>,
+  intervalMs = 30_000,
+): Promise<T> {
+  const start = Date.now();
+  const timer = setInterval(() => {
+    log("INFO", `${label} — still waiting`, { ...meta, elapsedMs: Date.now() - start });
+  }, intervalMs);
+  try {
+    return await fn();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main processor
 // ---------------------------------------------------------------------------
@@ -289,7 +307,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
     } else if (isDocumentFile(file.contentType) && env.OPENAI_API_KEY) {
       // --- Documents (PDF, DOCX, PPT): two focused GPT calls ---
       // Timeout set at client level — more reliable than per-request options on `as any` calls
-      const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: 180_000 });
+      const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: 600_000 });
 
       // Attempt to split PDFs into chunks (≤15 pages each) to avoid Responses API timeouts
       let pdfChunks: Buffer[] | null = null;
@@ -329,19 +347,23 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
 
           try {
             log("INFO", `GPT-4o chunk ${i + 1}/${pdfChunks.length}: extracting pages ${startPage}–${endPage}`, { fileId: file.fileId });
-            const chunkResponse = await (openai as any).responses.create({
-              model: "gpt-4o",
-              max_output_tokens: 8000,
-              input: [
-                {
-                  role: "user",
-                  content: [
-                    { type: "input_file", filename: `${file.originalName}-chunk${i + 1}.pdf`, file_data: chunkDataUrl },
-                    { type: "input_text", text: chunkPrompt },
-                  ],
-                },
-              ],
-            });
+            const chunkResponse: any = await withHeartbeat(
+              `GPT-4o chunk ${i + 1}/${pdfChunks.length}`,
+              { fileId: file.fileId },
+              () => (openai as any).responses.create({
+                model: "gpt-4o",
+                max_output_tokens: 8000,
+                input: [
+                  {
+                    role: "user",
+                    content: [
+                      { type: "input_file", filename: `${file.originalName}-chunk${i + 1}.pdf`, file_data: chunkDataUrl },
+                      { type: "input_text", text: chunkPrompt },
+                    ],
+                  },
+                ],
+              }),
+            );
 
             const chunkText = (chunkResponse.output_text ?? "").trim();
             textParts.push(chunkText);
@@ -377,7 +399,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
 
         try {
           log("INFO", "GPT-4o: starting document text extraction", { fileId: file.fileId, sizeBytes: body.length });
-          const extractionResponse = await (openai as any).responses.create({
+          const extractionResponse: any = await withHeartbeat("GPT-4o document extraction", { fileId: file.fileId }, () => (openai as any).responses.create({
             model: "gpt-4o",
             max_output_tokens: 8000,
             input: [
@@ -389,7 +411,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
                 ],
               },
             ],
-          });
+          }));
 
           extractedText = (extractionResponse.output_text ?? "").trim();
           log("INFO", "GPT-4o: document text extraction complete", { fileId: file.fileId, extractedLength: extractedText.length, inputTokens: extractionResponse.usage?.input_tokens, outputTokens: extractionResponse.usage?.output_tokens });
@@ -464,7 +486,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
         const visualSourceBuf = pdfChunks?.[0] ?? body;
         const visualDataUrl = `data:${file.contentType};base64,${visualSourceBuf.toString("base64")}`;
         try {
-          const visualSummaryResponse = await (openai as any).responses.create({
+          const visualSummaryResponse: any = await withHeartbeat("GPT-4o visual summary", { fileId: file.fileId }, () => (openai as any).responses.create({
             model: "gpt-4o",
             max_output_tokens: 600,
             input: [
@@ -479,7 +501,7 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
                 ],
               },
             ],
-          });
+          }));
           summary = (visualSummaryResponse.output_text ?? "").trim() || "No summary generated.";
           const inTok = visualSummaryResponse.usage?.input_tokens ?? 0;
           const outTok = visualSummaryResponse.usage?.output_tokens ?? 0;

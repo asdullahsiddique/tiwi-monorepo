@@ -1,18 +1,19 @@
 import { z } from "zod";
 
 const DaemonEnvSchema = z.object({
-  REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
+  MONGODB_URI: z.string().min(1).default("mongodb://localhost:27017/tiwi"),
+  PINECONE_API_KEY: z.string().min(1),
+  PINECONE_INDEX: z.string().min(1),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-small"),
   OPENAI_SUMMARIZATION_MODEL: z.string().min(1).default("gpt-4o-mini"),
   OPENAI_PRICE_INPUT_PER_1M_USD: z.coerce.number().nonnegative().default(0),
   OPENAI_PRICE_OUTPUT_PER_1M_USD: z.coerce.number().nonnegative().default(0),
-  
+
   // AssemblyAI (optional - for video/audio transcription)
   ASSEMBLYAI_API_KEY: z.string().optional(),
-  
+
   // LangSmith (optional - for LangGraph observability)
-  // Supports both LANGSMITH_* (newer) and LANGCHAIN_* (older) naming
   LANGSMITH_TRACING: z.string().optional(),
   LANGSMITH_API_KEY: z.string().optional(),
   LANGSMITH_ENDPOINT: z.string().optional(),

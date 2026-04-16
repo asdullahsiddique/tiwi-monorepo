@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   // Tell Next.js to trace files from the monorepo root so workspace packages
   // (@tiwi/*) are included in the standalone output.
   outputFileTracingRoot: path.join(__dirname, "../../"),
-  transpilePackages: ["@tiwi/shared", "@tiwi/neo4j", "@tiwi/storage", "@tiwi/core", "@tiwi/enrichment"],
+  transpilePackages: ["@tiwi/shared", "@tiwi/mongodb", "@tiwi/storage", "@tiwi/core", "@tiwi/enrichment"],
 };
 
 export default nextConfig;

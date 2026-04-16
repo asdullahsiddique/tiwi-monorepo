@@ -32,11 +32,14 @@ pulumi config set --secret tiwi:clerkSecretKey "$CLERK_SK"
 read -rsp "OPENAI_API_KEY (sk-...): " OAI_KEY; echo
 pulumi config set --secret tiwi:openAiApiKey "$OAI_KEY"
 
-read -rsp "NEO4J_URI (neo4j+s://...): " NEO4J_URI; echo
-pulumi config set --secret tiwi:neo4jUri "$NEO4J_URI"
+read -rsp "MONGODB_URI (mongodb+srv://...): " MONGO_URI; echo
+pulumi config set --secret tiwi:mongoUri "$MONGO_URI"
 
-read -rsp "NEO4J_PASSWORD: " NEO4J_PW; echo
-pulumi config set --secret tiwi:neo4jPassword "$NEO4J_PW"
+read -rsp "PINECONE_API_KEY: " PC_KEY; echo
+pulumi config set --secret tiwi:pineconeApiKey "$PC_KEY"
+
+read -rp "PINECONE_INDEX (plain index name): " PC_INDEX
+pulumi config set tiwi:pineconeIndex "$PC_INDEX"
 
 read -rsp "ASSEMBLYAI_API_KEY (optional — press Enter to skip): " ASSEMBLY_KEY; echo
 [ -n "$ASSEMBLY_KEY" ] && pulumi config set --secret tiwi:assemblyAiApiKey "$ASSEMBLY_KEY"
@@ -62,8 +65,7 @@ cat <<EOF
     The IAM role needs these permissions:
       - AmazonEC2FullAccess
       - AmazonECS_FullAccess
-      - AmazonECR_FullAccess (or AmazonEC2ContainerRegistryFullAccess)
-      - AmazonElastiCacheFullAccess
+      - AmazonECRFullAccess (or AmazonEC2ContainerRegistryFullAccess)
       - AmazonS3FullAccess
       - SecretsManagerReadWrite
       - IAMFullAccess

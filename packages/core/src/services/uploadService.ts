@@ -2,12 +2,11 @@ import { nanoid } from "nanoid";
 import { newFileId } from "@tiwi/shared";
 import { buildObjectKey, createPresignedPutUrl } from "@tiwi/storage";
 import {
-  getNeo4jDriver,
-  ensureNeo4jSchema,
+  getMongoDb,
   FileRepository,
   LogRepository,
-} from "@tiwi/neo4j";
-import { createQueue } from "../queue";
+  enqueueFileProcessing,
+} from "@tiwi/mongodb";
 
 export type RequestUploadInput = {
   orgId: string;
@@ -48,10 +47,9 @@ export async function requestUpload(
     ext,
   });
 
-  const driver = getNeo4jDriver();
-  await ensureNeo4jSchema(driver);
-  const fileRepo = new FileRepository(driver);
-  const logRepo = new LogRepository(driver);
+  const db = await getMongoDb();
+  const fileRepo = new FileRepository(db);
+  const logRepo = new LogRepository(db);
 
   await fileRepo.upsertFile({
     orgId: input.orgId,
@@ -89,63 +87,46 @@ export async function commitUpload(input: {
   contentType: string;
   sizeBytes?: number;
 }): Promise<{ ok: true }> {
-  const driver = getNeo4jDriver();
-  const queue = createQueue("tiwi-file-processing");
+  const db = await getMongoDb();
+  const fileRepo = new FileRepository(db);
+  const logRepo = new LogRepository(db);
 
-  try {
-    await ensureNeo4jSchema(driver);
-    const fileRepo = new FileRepository(driver);
-    const logRepo = new LogRepository(driver);
+  await fileRepo.upsertFile({
+    orgId: input.orgId,
+    userId: input.userId,
+    fileId: input.fileId,
+    objectKey: input.objectKey,
+    originalName: input.originalName,
+    contentType: input.contentType,
+    sizeBytes: input.sizeBytes,
+    status: "UPLOADED",
+  });
 
-    await fileRepo.upsertFile({
-      orgId: input.orgId,
-      userId: input.userId,
-      fileId: input.fileId,
-      objectKey: input.objectKey,
-      originalName: input.originalName,
-      contentType: input.contentType,
-      sizeBytes: input.sizeBytes,
-      status: "UPLOADED",
-    });
+  await fileRepo.updateStatus({
+    orgId: input.orgId,
+    fileId: input.fileId,
+    status: "QUEUED",
+  });
 
-    await fileRepo.updateStatus({
-      orgId: input.orgId,
-      fileId: input.fileId,
-      status: "QUEUED",
-    });
+  await logRepo.appendProcessingLog({
+    orgId: input.orgId,
+    fileId: input.fileId,
+    logId: nanoid(),
+    level: "INFO",
+    message: "Upload committed; queued processing job",
+    metadata: { objectKey: input.objectKey, contentType: input.contentType },
+  });
 
-    await logRepo.appendProcessingLog({
-      orgId: input.orgId,
-      fileId: input.fileId,
-      logId: nanoid(),
-      level: "INFO",
-      message: "Upload committed; enqueued processing job",
-      metadata: { objectKey: input.objectKey, contentType: input.contentType },
-    });
+  await enqueueFileProcessing(db, {
+    orgId: input.orgId,
+    userId: input.userId,
+    fileId: input.fileId,
+    objectKey: input.objectKey,
+    contentType: input.contentType,
+    originalName: input.originalName,
+  });
 
-    await queue.add(
-      "ProcessFileV1",
-      {
-        orgId: input.orgId,
-        userId: input.userId,
-        fileId: input.fileId,
-        objectKey: input.objectKey,
-        contentType: input.contentType,
-        originalName: input.originalName,
-      },
-      {
-        attempts: 5,
-        backoff: { type: "exponential", delay: 5_000 },
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
-      },
-    );
-
-    return { ok: true };
-  } finally {
-    await queue.close();
-    // Note: don't close driver — it's a singleton
-  }
+  return { ok: true };
 }
 
 /**
@@ -157,56 +138,38 @@ export async function reprocessFile(input: {
   userId: string;
   fileId: string;
 }): Promise<{ ok: true }> {
-  const driver = getNeo4jDriver();
-  const queue = createQueue("tiwi-file-processing");
+  const db = await getMongoDb();
+  const fileRepo = new FileRepository(db);
+  const logRepo = new LogRepository(db);
 
-  try {
-    await ensureNeo4jSchema(driver);
-    const fileRepo = new FileRepository(driver);
-    const logRepo = new LogRepository(driver);
-
-    // Get the existing file
-    const file = await fileRepo.getFile({ orgId: input.orgId, fileId: input.fileId });
-    if (!file) {
-      throw new Error("File not found");
-    }
-
-    // Reset status to QUEUED
-    await fileRepo.updateStatus({
-      orgId: input.orgId,
-      fileId: input.fileId,
-      status: "QUEUED",
-    });
-
-    await logRepo.appendProcessingLog({
-      orgId: input.orgId,
-      fileId: input.fileId,
-      logId: nanoid(),
-      level: "INFO",
-      message: "Reprocessing requested; re-enqueued processing job",
-      metadata: { previousStatus: file.status, requestedBy: input.userId },
-    });
-
-    await queue.add(
-      "ProcessFileV1",
-      {
-        orgId: input.orgId,
-        userId: input.userId,
-        fileId: input.fileId,
-        objectKey: file.objectKey,
-        contentType: file.contentType,
-        originalName: file.originalName,
-      },
-      {
-        attempts: 5,
-        backoff: { type: "exponential", delay: 5_000 },
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
-      },
-    );
-
-    return { ok: true };
-  } finally {
-    await queue.close();
+  const file = await fileRepo.getFile({ orgId: input.orgId, fileId: input.fileId });
+  if (!file) {
+    throw new Error("File not found");
   }
+
+  await fileRepo.updateStatus({
+    orgId: input.orgId,
+    fileId: input.fileId,
+    status: "QUEUED",
+  });
+
+  await logRepo.appendProcessingLog({
+    orgId: input.orgId,
+    fileId: input.fileId,
+    logId: nanoid(),
+    level: "INFO",
+    message: "Reprocessing requested; queued processing job",
+    metadata: { previousStatus: file.status, requestedBy: input.userId },
+  });
+
+  await enqueueFileProcessing(db, {
+    orgId: input.orgId,
+    userId: input.userId,
+    fileId: input.fileId,
+    objectKey: file.objectKey,
+    contentType: file.contentType,
+    originalName: file.originalName,
+  });
+
+  return { ok: true };
 }

@@ -28,7 +28,7 @@ TypeScript monorepo:
     runner)
 -   packages/shared → shared schemas & types
 -   packages/langgraph → agent orchestration + markdown specs
--   packages/neo4j → graph repository layer
+-   packages/mongodb → document + queue persistence; Pinecone for vectors
 
 ------------------------------------------------------------------------
 

@@ -5,17 +5,17 @@ import * as awsx from "@pulumi/awsx";
 // ─── Config / Secrets ─────────────────────────────────────────────────────────
 // Set these with:
 //   pulumi config set --secret tiwi:openAiApiKey         sk-...
-//   pulumi config set --secret tiwi:neo4jUri             neo4j+s://...
-//   pulumi config set --secret tiwi:neo4jPassword        ...
-//   pulumi config set --secret tiwi:redisUrl             rediss://...upstash.io:6379
+//   pulumi config set --secret tiwi:mongoUri             mongodb+srv://...
+//   pulumi config set --secret tiwi:pineconeApiKey       ...
+//   pulumi config set        tiwi:pineconeIndex         your-index-name
 //   pulumi config set --secret tiwi:assemblyAiApiKey     ...   (optional)
 const cfg = new pulumi.Config("tiwi");
 
-const openAiApiKey     = cfg.requireSecret("openAiApiKey");
-const neo4jUri         = cfg.requireSecret("neo4jUri");
-const neo4jPassword    = cfg.requireSecret("neo4jPassword");
-const redisUrl         = cfg.requireSecret("redisUrl");
-const assemblyAiApiKey = cfg.getSecret("assemblyAiApiKey") ?? pulumi.output("");
+const openAiApiKey      = cfg.requireSecret("openAiApiKey");
+const mongoUri          = cfg.requireSecret("mongoUri");
+const pineconeApiKey    = cfg.requireSecret("pineconeApiKey");
+const pineconeIndex     = cfg.require("pineconeIndex");
+const assemblyAiApiKey  = cfg.getSecret("assemblyAiApiKey") ?? pulumi.output("");
 
 // ─── AWS context ──────────────────────────────────────────────────────────────
 const region   = aws.getRegionOutput();
@@ -29,7 +29,6 @@ const vpc = new awsx.ec2.Vpc("tiwi", {
 });
 
 // ─── Security Groups ──────────────────────────────────────────────────────────
-// Daemon only needs outbound (connects to Upstash Redis, Neo4j, OpenAI, etc.)
 const daemonSg = new aws.ec2.SecurityGroup("daemon-sg", {
   vpcId: vpc.vpcId,
   description: "ECS daemon - outbound only",
@@ -68,9 +67,6 @@ new aws.s3.BucketLifecycleConfigurationV2("files-lifecycle", {
   }],
 });
 
-// Redis URL comes from Upstash (accessible from both Vercel and ECS).
-// Set via: pulumi config set --secret tiwi:redisUrl rediss://...upstash.io:6379
-
 // ─── ECR Repository ───────────────────────────────────────────────────────────
 const daemonRepo = new aws.ecr.Repository("daemon-repo", {
   name: "tiwi/daemon",
@@ -90,7 +86,6 @@ new aws.ecr.LifecyclePolicy("daemon-repo-lifecycle", {
   }),
 });
 
-// Build + push daemon Docker image during `pulumi up`.
 const daemonImage = new awsx.ecr.Image("daemon-image", {
   repositoryUrl: daemonRepo.repositoryUrl,
   context: "../",
@@ -110,9 +105,14 @@ function smSecret(
   return secret;
 }
 
-const neo4jSecret = smSecret(
-  "neo4j-secret", "tiwi/neo4j-v2",
-  pulumi.jsonStringify({ NEO4J_URI: neo4jUri, NEO4J_USERNAME: "neo4j", NEO4J_PASSWORD: neo4jPassword }),
+const mongoSecret = smSecret(
+  "mongo-secret", "tiwi/mongo-v1",
+  pulumi.jsonStringify({ MONGODB_URI: mongoUri }),
+);
+
+const pineconeSecret = smSecret(
+  "pinecone-secret", "tiwi/pinecone-v1",
+  pulumi.jsonStringify({ PINECONE_API_KEY: pineconeApiKey }),
 );
 
 const openAiSecret = smSecret(
@@ -143,7 +143,7 @@ new aws.iam.RolePolicy("execution-sm", {
     Version: "2012-10-17",
     Statement: [{
       Effect: "Allow", Action: ["secretsmanager:GetSecretValue"],
-      Resource: [neo4jSecret.arn, openAiSecret.arn, assemblyAiSecret.arn],
+      Resource: [mongoSecret.arn, pineconeSecret.arn, openAiSecret.arn, assemblyAiSecret.arn],
     }],
   }),
 });
@@ -165,9 +165,6 @@ new aws.iam.RolePolicy("task-s3", {
   }),
 });
 
-// ─── IAM User for Vercel (presigned URL signing) ──────────────────────────────
-// Vercel cannot use IAM roles, so we create a least-privilege IAM user that can
-// only sign presigned URLs (PutObject for uploads, GetObject for downloads).
 const vercelUser = new aws.iam.User("vercel-s3-user", {
   name: "tiwi-vercel-s3",
   tags: { Name: "tiwi-vercel-s3" },
@@ -189,25 +186,21 @@ const vercelAccessKey = new aws.iam.AccessKey("vercel-s3-key", {
   user: vercelUser.name,
 });
 
-// ─── ECS Cluster ──────────────────────────────────────────────────────────────
 const cluster = new aws.ecs.Cluster("cluster", {
   name: "tiwi",
   settings: [{ name: "containerInsights", value: "enabled" }],
 });
 
-// ─── CloudWatch Logs ──────────────────────────────────────────────────────────
 const daemonLogGroup = new aws.cloudwatch.LogGroup("daemon-logs", {
   name: "/ecs/tiwi/daemon",
   retentionInDays: 7,
 });
 
-// ─── Helper: ECS secret reference from Secrets Manager JSON key ───────────────
 const secretRef = (arn: pulumi.Output<string>, key: string) => ({
   name: key,
   valueFrom: pulumi.interpolate`${arn}:${key}::`,
 });
 
-// ─── Daemon Task Definition ───────────────────────────────────────────────────
 const daemonTd = new aws.ecs.TaskDefinition("daemon-td", {
   family: "tiwi-daemon",
   cpu: "1024", memory: "2048",
@@ -220,17 +213,16 @@ const daemonTd = new aws.ecs.TaskDefinition("daemon-td", {
     image: daemonImage.imageUri,
     environment: [
       { name: "NODE_ENV",                   value: "production" },
-      { name: "REDIS_URL",                  value: redisUrl },
       { name: "S3_BUCKET",                  value: filesBucket.id },
       { name: "S3_REGION",                  value: region.name },
       { name: "OPENAI_EMBEDDING_MODEL",     value: "text-embedding-3-small" },
       { name: "OPENAI_SUMMARIZATION_MODEL", value: "gpt-4o-mini" },
+      { name: "PINECONE_INDEX",             value: pineconeIndex },
     ],
     secrets: [
-      secretRef(neo4jSecret.arn,      "NEO4J_URI"),
-      secretRef(neo4jSecret.arn,      "NEO4J_USERNAME"),
-      secretRef(neo4jSecret.arn,      "NEO4J_PASSWORD"),
-      secretRef(openAiSecret.arn,     "OPENAI_API_KEY"),
+      secretRef(mongoSecret.arn,       "MONGODB_URI"),
+      secretRef(pineconeSecret.arn,   "PINECONE_API_KEY"),
+      secretRef(openAiSecret.arn,      "OPENAI_API_KEY"),
       secretRef(assemblyAiSecret.arn, "ASSEMBLYAI_API_KEY"),
     ],
     logConfiguration: {
@@ -244,7 +236,6 @@ const daemonTd = new aws.ecs.TaskDefinition("daemon-td", {
   }]),
 });
 
-// ─── ECS Service ──────────────────────────────────────────────────────────────
 new aws.ecs.Service("daemon", {
   name: "tiwi-daemon",
   cluster: cluster.id,
@@ -259,10 +250,8 @@ new aws.ecs.Service("daemon", {
   deploymentCircuitBreaker: { enable: true, rollback: true },
 });
 
-// ─── Outputs ──────────────────────────────────────────────────────────────────
 export const s3BucketName        = filesBucket.id;
 export const clusterName         = cluster.name;
 export const daemonEcrUri        = daemonRepo.repositoryUrl;
-// Add these to Vercel environment variables:
 export const vercelS3AccessKeyId     = vercelAccessKey.id;
 export const vercelS3SecretAccessKey = vercelAccessKey.secret;

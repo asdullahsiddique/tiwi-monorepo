@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { TypeRegistryRecord } from "@tiwi/neo4j";
+import type { TypeRegistryRecord } from "@tiwi/mongodb";
 
 type SchemaScreenProps = {
   types: TypeRegistryRecord[];

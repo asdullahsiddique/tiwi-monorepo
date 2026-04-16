@@ -6,6 +6,3 @@ export type ProcessFileV1Payload = {
   contentType: string;
   originalName: string;
 };
-
-export const QUEUE_NAME = "tiwi-file-processing";
-export const JOB_PROCESS_FILE_V1 = "ProcessFileV1";

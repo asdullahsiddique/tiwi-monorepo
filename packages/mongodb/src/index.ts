@@ -1,6 +1,7 @@
-export * from "./driver";
+export * from "./client";
 export * from "./env";
 export * from "./schema";
+export * from "./fileProcessing";
 export * from "./repositories/orgRepo";
 export * from "./repositories/fileRepo";
 export * from "./repositories/logRepo";
@@ -10,4 +11,3 @@ export * from "./repositories/artifactRepo";
 export * from "./repositories/entityRepo";
 export * from "./repositories/searchHistoryRepo";
 export { formatTypesForPrompt } from "./seed/entityTypes";
-

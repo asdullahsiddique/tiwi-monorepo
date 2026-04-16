@@ -14,10 +14,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@tiwi/neo4j": "workspace:*",
+    "@tiwi/mongodb": "workspace:*",
     "@tiwi/shared": "workspace:*",
     "@tiwi/storage": "workspace:*",
-    "bullmq": "^5.58.4",
     "nanoid": "^5.1.6",
     "openai": "^4.104.0",
     "zod": "^3.23.8"
@@ -27,4 +26,3 @@
     "typescript": "^5"
   }
 }
-

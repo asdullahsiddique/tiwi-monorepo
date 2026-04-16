@@ -1,10 +1,8 @@
 import { router, procedure } from "../trpc";
 import { z } from "zod";
 import { semanticSearch } from "@tiwi/core";
-import { SearchHistoryRepository, getNeo4jDriver } from "@tiwi/neo4j";
+import { SearchHistoryRepository, getMongoDb } from "@tiwi/mongodb";
 import { randomUUID } from "crypto";
-
-const searchHistoryRepo = new SearchHistoryRepository(getNeo4jDriver());
 
 export const searchRouter = router({
   semantic: procedure
@@ -16,7 +14,9 @@ export const searchRouter = router({
     .mutation(async ({ ctx, input }) => {
       const result = await semanticSearch({ orgId: ctx.orgId, query: input.query, topK: 8 });
 
-      // Save to history
+      const db = await getMongoDb();
+      const searchHistoryRepo = new SearchHistoryRepository(db);
+
       const searchId = randomUUID();
       await searchHistoryRepo.saveSearch({
         orgId: ctx.orgId,
@@ -31,6 +31,8 @@ export const searchRouter = router({
     }),
 
   history: procedure.query(async ({ ctx }) => {
+    const db = await getMongoDb();
+    const searchHistoryRepo = new SearchHistoryRepository(db);
     const history = await searchHistoryRepo.getSearchHistory({
       orgId: ctx.orgId,
       userId: ctx.userId,
@@ -42,6 +44,8 @@ export const searchRouter = router({
   deleteSearch: procedure
     .input(z.object({ searchId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const db = await getMongoDb();
+      const searchHistoryRepo = new SearchHistoryRepository(db);
       const deleted = await searchHistoryRepo.deleteSearch({
         orgId: ctx.orgId,
         userId: ctx.userId,
@@ -51,6 +55,8 @@ export const searchRouter = router({
     }),
 
   clearHistory: procedure.mutation(async ({ ctx }) => {
+    const db = await getMongoDb();
+    const searchHistoryRepo = new SearchHistoryRepository(db);
     const count = await searchHistoryRepo.clearHistory({
       orgId: ctx.orgId,
       userId: ctx.userId,
@@ -58,4 +64,3 @@ export const searchRouter = router({
     return { deleted: count };
   }),
 });
-

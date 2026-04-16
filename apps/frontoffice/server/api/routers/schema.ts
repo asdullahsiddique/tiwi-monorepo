@@ -1,15 +1,14 @@
 import { router, procedure } from "../trpc";
 import { z } from "zod";
-import { getNeo4jDriver, TypeRegistryRepository, EntityRepository } from "@tiwi/neo4j";
+import { getMongoDb, TypeRegistryRepository, EntityRepository } from "@tiwi/mongodb";
 
 export const schemaRouter = router({
-  listTypes: procedure
-    .query(async ({ ctx }) => {
-      const driver = getNeo4jDriver();
-      const typeRepo = new TypeRegistryRepository(driver);
-      const types = await typeRepo.listTypes({ orgId: ctx.orgId });
-      return { types };
-    }),
+  listTypes: procedure.query(async ({ ctx }) => {
+    const db = await getMongoDb();
+    const typeRepo = new TypeRegistryRepository(db);
+    const types = await typeRepo.listTypes({ orgId: ctx.orgId });
+    return { types };
+  }),
 
   createType: procedure
     .input(
@@ -20,8 +19,8 @@ export const schemaRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const driver = getNeo4jDriver();
-      const typeRepo = new TypeRegistryRepository(driver);
+      const db = await getMongoDb();
+      const typeRepo = new TypeRegistryRepository(db);
       await typeRepo.createType({
         orgId: ctx.orgId,
         typeName: input.typeName,
@@ -42,8 +41,8 @@ export const schemaRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const driver = getNeo4jDriver();
-      const typeRepo = new TypeRegistryRepository(driver);
+      const db = await getMongoDb();
+      const typeRepo = new TypeRegistryRepository(db);
       await typeRepo.updateType({
         orgId: ctx.orgId,
         typeName: input.typeName,
@@ -56,8 +55,8 @@ export const schemaRouter = router({
   deleteType: procedure
     .input(z.object({ typeName: z.string().min(1).max(64) }))
     .mutation(async ({ ctx, input }) => {
-      const driver = getNeo4jDriver();
-      const typeRepo = new TypeRegistryRepository(driver);
+      const db = await getMongoDb();
+      const typeRepo = new TypeRegistryRepository(db);
       await typeRepo.deleteType({ orgId: ctx.orgId, typeName: input.typeName });
       return { ok: true };
     }),
@@ -65,8 +64,8 @@ export const schemaRouter = router({
   confirmDraftType: procedure
     .input(z.object({ typeName: z.string().min(1).max(64) }))
     .mutation(async ({ ctx, input }) => {
-      const driver = getNeo4jDriver();
-      const typeRepo = new TypeRegistryRepository(driver);
+      const db = await getMongoDb();
+      const typeRepo = new TypeRegistryRepository(db);
       await typeRepo.confirmDraftType({ orgId: ctx.orgId, typeName: input.typeName });
       return { ok: true };
     }),
@@ -74,10 +73,9 @@ export const schemaRouter = router({
   dismissDraftType: procedure
     .input(z.object({ typeName: z.string().min(1).max(64) }))
     .mutation(async ({ ctx, input }) => {
-      const driver = getNeo4jDriver();
-      const typeRepo = new TypeRegistryRepository(driver);
-      const entityRepo = new EntityRepository(driver);
-      // Delete entities of this type first, then remove the type
+      const db = await getMongoDb();
+      const typeRepo = new TypeRegistryRepository(db);
+      const entityRepo = new EntityRepository(db);
       await entityRepo.deleteEntitiesByType({ orgId: ctx.orgId, typeName: input.typeName });
       await typeRepo.dismissDraftType({ orgId: ctx.orgId, typeName: input.typeName });
       return { ok: true };

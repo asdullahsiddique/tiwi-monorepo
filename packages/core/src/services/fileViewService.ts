@@ -1,15 +1,12 @@
 import {
   ArtifactRepository,
-  getNeo4jDriver,
+  getMongoDb,
   EmbeddingRepository,
-  ensureNeo4jSchema,
   FileRepository,
   LogRepository,
   EntityRepository,
   TypeRegistryRepository,
-  type EntityRecord,
-  type RelationshipRecord,
-} from "@tiwi/neo4j";
+} from "@tiwi/mongodb";
 import { createPresignedGetUrl } from "@tiwi/storage";
 
 export type FileViewEntity = {
@@ -17,7 +14,7 @@ export type FileViewEntity = {
   typeName: string;
   name: string;
   properties: Record<string, unknown>;
-  typeStatus?: 'active' | 'draft';
+  typeStatus?: "active" | "draft";
 };
 
 export type FileViewRelationship = {
@@ -45,15 +42,14 @@ export async function getFileView(params: {
   entities: FileViewEntity[];
   relationships: FileViewRelationship[];
 }> {
-  const driver = getNeo4jDriver();
-  await ensureNeo4jSchema(driver);
+  const db = await getMongoDb();
 
-  const fileRepo = new FileRepository(driver);
-  const logRepo = new LogRepository(driver);
-  const artifactRepo = new ArtifactRepository(driver);
-  const embeddingRepo = new EmbeddingRepository(driver);
-  const entityRepo = new EntityRepository(driver);
-  const typeRepo = new TypeRegistryRepository(driver);
+  const fileRepo = new FileRepository(db);
+  const logRepo = new LogRepository(db);
+  const artifactRepo = new ArtifactRepository(db);
+  const embeddingRepo = new EmbeddingRepository(db);
+  const entityRepo = new EntityRepository(db);
+  const typeRepo = new TypeRegistryRepository(db);
 
   const file = await fileRepo.getFile({
     orgId: params.orgId,
@@ -82,7 +78,6 @@ export async function getFileView(params: {
     offset: 0,
   });
 
-  // Fetch entities and relationships extracted from this file
   const entitiesRaw = await entityRepo.getEntitiesByFile({
     orgId: params.orgId,
     fileId: params.fileId,
@@ -92,10 +87,9 @@ export async function getFileView(params: {
     fileId: params.fileId,
   });
 
-  // Build a map of typeName -> status for annotating entities
   const allTypes = await typeRepo.listTypes({ orgId: params.orgId });
-  const typeStatusMap = new Map<string, 'active' | 'draft'>(
-    allTypes.map((t) => [t.typeName, t.status])
+  const typeStatusMap = new Map<string, "active" | "draft">(
+    allTypes.map((t) => [t.typeName, t.status]),
   );
 
   const entities: FileViewEntity[] = entitiesRaw.map((e) => ({
@@ -116,7 +110,6 @@ export async function getFileView(params: {
     properties: r.properties,
   }));
 
-  // Generate presigned URL for direct download (Open original button)
   const downloadUrl = file
     ? await createPresignedGetUrl({
         objectKey: file.objectKey,
@@ -124,7 +117,6 @@ export async function getFileView(params: {
       })
     : null;
 
-  // Preview URL uses the proxy API route to avoid CORS issues
   const previewUrl = file ? `/api/files/${file.fileId}/preview` : null;
 
   return {

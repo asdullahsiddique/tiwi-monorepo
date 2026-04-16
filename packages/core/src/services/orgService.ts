@@ -1,11 +1,10 @@
-import { getNeo4jDriver, ensureNeo4jSchema, OrgRepository } from "@tiwi/neo4j";
+import { getMongoDb, OrgRepository } from "@tiwi/mongodb";
 
 export async function ensureGraphMirror(params: {
   orgId: string;
   userId: string;
 }): Promise<void> {
-  const driver = getNeo4jDriver();
-  await ensureNeo4jSchema(driver);
-  const repo = new OrgRepository(driver);
+  const db = await getMongoDb();
+  const repo = new OrgRepository(db);
   await repo.ensureOrgAndUser(params);
 }

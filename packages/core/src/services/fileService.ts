@@ -1,4 +1,4 @@
-import { getNeo4jDriver, ensureNeo4jSchema, FileRepository } from "@tiwi/neo4j";
+import { getMongoDb, FileRepository } from "@tiwi/mongodb";
 import { getObjectContent } from "@tiwi/storage";
 
 export async function listFiles(params: {
@@ -6,16 +6,14 @@ export async function listFiles(params: {
   limit: number;
   offset: number;
 }) {
-  const driver = getNeo4jDriver();
-  await ensureNeo4jSchema(driver);
-  const repo = new FileRepository(driver);
+  const db = await getMongoDb();
+  const repo = new FileRepository(db);
   return repo.listFiles(params);
 }
 
 export async function getFile(params: { orgId: string; fileId: string }) {
-  const driver = getNeo4jDriver();
-  await ensureNeo4jSchema(driver);
-  const repo = new FileRepository(driver);
+  const db = await getMongoDb();
+  const repo = new FileRepository(db);
   return repo.getFile(params);
 }
 

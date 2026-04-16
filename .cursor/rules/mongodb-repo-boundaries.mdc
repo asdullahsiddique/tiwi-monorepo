@@ -1,0 +1,21 @@
+---
+description: MongoDB repositories are org-scoped and persistence-only
+globs: packages/mongodb/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# MongoDB repository boundaries
+
+## Repository responsibilities
+- All MongoDB persistence lives in `packages/mongodb` (no ad-hoc drivers elsewhere).
+- Every public repository method takes `orgId` explicitly where data is tenant-scoped.
+- Return typed domain records (stable shapes for apps).
+
+## Forbidden
+- Calling OpenAI or any AI provider
+- Reading/writing S3 objects
+- HTTP calls (except Pinecone client used only from embedding helpers in this package)
+
+## Tenancy enforcement
+- Every query must filter by `orgId` for tenant-owned collections.
+- Every document written must include `orgId` where applicable.

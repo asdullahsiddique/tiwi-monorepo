@@ -6,7 +6,8 @@ alwaysApply: true
 # Core non-negotiables (v1)
 
 ## Architecture & data
-- Neo4j is the primary memory (graph-first).
+- MongoDB is the primary application datastore (files, logs, entities, queue jobs).
+- Pinecone stores embedding vectors; chunk text lives in MongoDB and links to `fileId` / `orgId`.
 - Everything is multi-tenant. Every write/query must be scoped by `orgId` (and `userId` where relevant). No cross-org visibility.
 - Embeddings are mandatory for semantic retrieval and must be linked back to the originating file/artifact.
 
@@ -19,5 +20,5 @@ alwaysApply: true
 - Local object storage uses MinIO (S3-compatible). Production/staging uses Cloudflare R2 via the same S3 client configuration.
 
 ## Scope calls
-- MongoDB is not used in v1. Do not add Mongo-based persistence.
+- Prefer `@tiwi/mongodb` for persistence; do not reintroduce Neo4j for v1.
 

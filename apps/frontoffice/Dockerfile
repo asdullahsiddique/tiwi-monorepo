@@ -10,7 +10,7 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/frontoffice/package.json   ./apps/frontoffice/
 COPY apps/daemon/package.json        ./apps/daemon/
 COPY packages/core/package.json      ./packages/core/
-COPY packages/neo4j/package.json     ./packages/neo4j/
+COPY packages/mongodb/package.json    ./packages/mongodb/
 COPY packages/storage/package.json   ./packages/storage/
 COPY packages/enrichment/package.json ./packages/enrichment/
 COPY packages/shared/package.json    ./packages/shared/

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { AIExecutionLogRecord, ProcessingLogRecord } from "@tiwi/neo4j";
+import type { AIExecutionLogRecord, ProcessingLogRecord } from "@tiwi/mongodb";
 import { EntityGraph } from "../EntityGraph";
 
 type AILogSummary = {

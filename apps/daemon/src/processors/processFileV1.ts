@@ -5,14 +5,13 @@ import { AssemblyAI } from "assemblyai";
 import { nanoid } from "nanoid";
 import {
   ArtifactRepository,
-  createNeo4jDriver,
+  getMongoDb,
   EmbeddingRepository,
-  ensureNeo4jSchema,
   FileRepository,
   LogRepository,
   TypeRegistryRepository,
   EntityRepository,
-} from "@tiwi/neo4j";
+} from "@tiwi/mongodb";
 import { createS3Client, createPresignedGetUrl } from "@tiwi/storage";
 import { runFileEnrichment } from "@tiwi/enrichment";
 import { getDaemonEnv } from "../env";
@@ -192,17 +191,14 @@ async function withHeartbeat<T>(
 
 export async function processFileV1(payload: ProcessFileV1Payload): Promise<void> {
   const env = getDaemonEnv();
-  const driver = createNeo4jDriver();
+  const db = await getMongoDb();
 
-  try {
-    await ensureNeo4jSchema(driver);
-
-    const fileRepo = new FileRepository(driver);
-    const logRepo = new LogRepository(driver);
-    const artifactRepo = new ArtifactRepository(driver);
-    const embeddingRepo = new EmbeddingRepository(driver);
-    const typeRepo = new TypeRegistryRepository(driver);
-    const entityRepo = new EntityRepository(driver);
+  const fileRepo = new FileRepository(db);
+  const logRepo = new LogRepository(db);
+  const artifactRepo = new ArtifactRepository(db);
+  const embeddingRepo = new EmbeddingRepository(db);
+  const typeRepo = new TypeRegistryRepository(db);
+  const entityRepo = new EntityRepository(db);
 
     const file = await fileRepo.getFile({ orgId: payload.orgId, fileId: payload.fileId });
     if (!file) { log("WARN", "File not found, aborting", { fileId: payload.fileId }); return; }
@@ -690,6 +686,11 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
     await artifactRepo.setFileSummary({ orgId: payload.orgId, fileId: payload.fileId, summary });
 
     if (env.OPENAI_API_KEY) {
+      await embeddingRepo.deleteChunksForFile({
+        orgId: payload.orgId,
+        fileId: payload.fileId,
+      });
+
       const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
       const chunks = chunkText(textForEnrichment.slice(0, 100_000), { size: 1200, overlap: 200 });
 
@@ -881,8 +882,4 @@ export async function processFileV1(payload: ProcessFileV1Payload): Promise<void
         resolvedMatches: enrichment.resolvedMatches?.length ?? 0,
       },
     });
-
-  } finally {
-    await driver.close();
-  }
 }

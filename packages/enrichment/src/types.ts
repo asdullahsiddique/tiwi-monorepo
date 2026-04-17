@@ -1,34 +1,28 @@
-import { z } from "zod";
+import type {
+  CarDocument,
+  CircuitDocument,
+  ConstructorDocument,
+  DriverDocument,
+  DriverSeatDocument,
+  F1BaseDocument,
+  FactProvenance,
+  GrandPrixDocument,
+  IncidentDocument,
+  PenaltyDocument,
+  PitStopDocument,
+  QualifyingResultDocument,
+  QuoteDocument,
+  RaceResultDocument,
+  SeasonDocument,
+  SprintResultDocument,
+  TeamPrincipalDocument,
+  TransferRumourDocument,
+  TyreCompoundDocument,
+} from "@tiwi/mongodb";
 
-export const TypeNameSchema = z.string().min(1).max(64);
-export type TypeName = z.infer<typeof TypeNameSchema>;
-
-export const ExtractedEntitySchema = z.object({
-  typeName: TypeNameSchema,
-  name: z.string().min(1).max(256),
-  properties: z.record(z.string(), z.unknown()).optional(),
-  // Entity resolution fields
-  matchedExistingEntityId: z.string().optional(), // If matched to existing entity
-  confidence: z.number().min(0).max(1).optional(), // Confidence in the match
-});
-export type ExtractedEntity = z.infer<typeof ExtractedEntitySchema>;
-
-export const ExtractedRelationshipSchema = z.object({
-  fromTypeName: z.string().min(1).max(64),
-  fromName: z.string().min(1),
-  toTypeName: z.string().min(1).max(64),
-  toName: z.string().min(1),
-  relationshipType: z.string().min(1).max(64),
-  properties: z.record(z.string(), z.unknown()).optional(),
-});
-export type ExtractedRelationship = z.infer<typeof ExtractedRelationshipSchema>;
-
-export const ProposedTypeSchema = z.object({
-  typeName: z.string().min(1).max(64),
-  description: z.string().min(1).max(500),
-  suggestedProperties: z.array(z.string()).default([]),
-});
-export type ProposedType = z.infer<typeof ProposedTypeSchema>;
+// ---------------------------------------------------------------------------
+// Shared cross-node logging types
+// ---------------------------------------------------------------------------
 
 export type AICallUsage = {
   model: string;
@@ -47,53 +41,67 @@ export type DecisionLog = {
   metadata?: Record<string, unknown>;
 };
 
-/**
- * Entity type information for AI context.
- */
-export type EntityTypeContext = {
-  typeName: string;
-  description: string;
-  properties?: string[];
-  entityCount?: number;
-};
+// ---------------------------------------------------------------------------
+// Draft docs — what each extraction node emits
+//
+// A "draft" is the payload passed to F1Repository.upsertXxx after the graph
+// finishes. Fields owned by the persistence layer (orgId, sourceFileIds,
+// createdAt, updatedAt) are omitted; entityId is pre-generated so other nodes
+// in the same run can reference it for FK lookups.
+// ---------------------------------------------------------------------------
 
-/**
- * Existing entity summary for AI context (entity resolution).
- */
-export type ExistingEntityContext = {
+export type DraftDoc<T extends F1BaseDocument> = Omit<
+  T,
+  "orgId" | "sourceFileIds" | "createdAt" | "updatedAt" | "nameLower"
+> & {
   entityId: string;
-  typeName: string;
-  name: string;
-  mentionCount?: number;
 };
 
-/**
- * Context provided to the enrichment function for entity resolution.
- */
-export type EnrichmentContext = {
-  existingTypes: EntityTypeContext[];
-  existingEntities: ExistingEntityContext[];
-};
+export type DraftDriver = DraftDoc<DriverDocument>;
+export type DraftConstructor = DraftDoc<ConstructorDocument>;
+export type DraftTeamPrincipal = DraftDoc<TeamPrincipalDocument>;
+export type DraftCircuit = DraftDoc<CircuitDocument>;
+export type DraftSeason = DraftDoc<SeasonDocument>;
+export type DraftGrandPrix = DraftDoc<GrandPrixDocument>;
+export type DraftDriverSeat = DraftDoc<DriverSeatDocument>;
+export type DraftRaceResult = DraftDoc<RaceResultDocument>;
+export type DraftQualifyingResult = DraftDoc<QualifyingResultDocument>;
+export type DraftSprintResult = DraftDoc<SprintResultDocument>;
+export type DraftPitStop = DraftDoc<PitStopDocument>;
+export type DraftIncident = DraftDoc<IncidentDocument>;
+export type DraftPenalty = DraftDoc<PenaltyDocument>;
+export type DraftCar = DraftDoc<CarDocument>;
+export type DraftTyreCompound = DraftDoc<TyreCompoundDocument>;
+export type DraftQuote = DraftDoc<QuoteDocument>;
+export type DraftTransferRumour = DraftDoc<TransferRumourDocument>;
 
-/**
- * Entity resolution match from AI.
- */
-export type ResolvedMatch = {
-  extractedName: string;
-  extractedTypeName: string;
-  matchedExistingEntityId: string;
-  matchedExistingName: string;
-  matchedExistingTypeName: string;
-  confidence: number;
-  reason: string;
-};
+// ---------------------------------------------------------------------------
+// Final enrichment result returned to the daemon
+// ---------------------------------------------------------------------------
 
-export type EnrichmentResult = {
-  createdTypes: ProposedType[];
-  entities: ExtractedEntity[];
-  relationships: ExtractedRelationship[];
-  aiCalls: AICallUsage[];
+export type F1EnrichmentResult = {
+  drivers: DraftDriver[];
+  constructors: DraftConstructor[];
+  teamPrincipals: DraftTeamPrincipal[];
+  circuits: DraftCircuit[];
+  seasons: DraftSeason[];
+  grandsPrix: DraftGrandPrix[];
+  driverSeats: DraftDriverSeat[];
+  raceResults: DraftRaceResult[];
+  qualifyingResults: DraftQualifyingResult[];
+  sprintResults: DraftSprintResult[];
+  pitStops: DraftPitStop[];
+  incidents: DraftIncident[];
+  penalties: DraftPenalty[];
+  cars: DraftCar[];
+  tyreCompounds: DraftTyreCompound[];
+  quotes: DraftQuote[];
+  transferRumours: DraftTransferRumour[];
+
   decisions: DecisionLog[];
-  resolvedMatches: ResolvedMatch[];
+  aiCalls: AICallUsage[];
+  errors: string[];
 };
 
+// Re-export FactProvenance for convenience.
+export type { FactProvenance };

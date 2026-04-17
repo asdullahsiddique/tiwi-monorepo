@@ -216,7 +216,7 @@ const daemonTd = new aws.ecs.TaskDefinition("daemon-td", {
       { name: "S3_BUCKET",                  value: filesBucket.id },
       { name: "S3_REGION",                  value: region.name },
       { name: "OPENAI_EMBEDDING_MODEL",     value: "text-embedding-3-small" },
-      { name: "OPENAI_SUMMARIZATION_MODEL", value: "gpt-4o-mini" },
+      { name: "OPENAI_SUMMARIZATION_MODEL", value: "gpt-5-mini" },
       { name: "PINECONE_INDEX",             value: pineconeIndex },
     ],
     secrets: [

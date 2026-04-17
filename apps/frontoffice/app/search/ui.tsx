@@ -1,48 +1,72 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "@/lib/trpc";
-import { SearchScreen } from "@/components/screens/SearchScreen";
+import {
+  SearchScreen,
+  type SearchPromptOption,
+} from "@/components/screens/SearchScreen";
 
 export default function SearchClient() {
   const [query, setQuery] = useState("");
+  const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
 
   const utils = api.useUtils();
 
-  // Search mutation (saves to history)
   const searchMutation = api.search.semantic.useMutation({
     onSuccess: () => {
-      // Refetch history after new search
       utils.search.history.invalidate();
     },
   });
 
-  // Search history
   const historyQuery = api.search.history.useQuery();
+  const promptsQuery = api.prompts.list.useQuery();
 
-  // Delete search mutation
   const deleteMutation = api.search.deleteSearch.useMutation({
     onSuccess: () => {
       utils.search.history.invalidate();
     },
   });
 
-  // Clear all history mutation
   const clearMutation = api.search.clearHistory.useMutation({
     onSuccess: () => {
       utils.search.history.invalidate();
     },
   });
 
+  const availablePrompts: SearchPromptOption[] = useMemo(
+    () =>
+      (promptsQuery.data?.items ?? []).map((p) => ({
+        promptId: p.promptId,
+        name: p.name,
+        placement: p.placement as SearchPromptOption["placement"],
+      })),
+    [promptsQuery.data],
+  );
+
   const handleSearch = () => {
     if (query.trim()) {
-      searchMutation.mutate({ query });
+      searchMutation.mutate({
+        query,
+        promptIds: selectedPromptIds.length > 0 ? selectedPromptIds : undefined,
+      });
     }
   };
 
   const handleSelectFromHistory = (historicQuery: string) => {
     setQuery(historicQuery);
-    searchMutation.mutate({ query: historicQuery });
+    searchMutation.mutate({
+      query: historicQuery,
+      promptIds: selectedPromptIds.length > 0 ? selectedPromptIds : undefined,
+    });
+  };
+
+  const handleTogglePrompt = (promptId: string) => {
+    setSelectedPromptIds((prev) =>
+      prev.includes(promptId)
+        ? prev.filter((id) => id !== promptId)
+        : [...prev, promptId],
+    );
   };
 
   return (
@@ -60,7 +84,9 @@ export default function SearchClient() {
       onDeleteHistory={(searchId) => deleteMutation.mutate({ searchId })}
       onClearHistory={() => clearMutation.mutate()}
       isDeletingHistory={deleteMutation.isPending}
+      availablePrompts={availablePrompts}
+      selectedPromptIds={selectedPromptIds}
+      onTogglePrompt={handleTogglePrompt}
     />
   );
 }
-

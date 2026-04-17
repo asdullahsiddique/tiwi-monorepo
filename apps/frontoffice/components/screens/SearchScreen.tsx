@@ -13,6 +13,18 @@ export type SearchHistoryItem = {
   createdAt: string;
 };
 
+export type SearchPromptOption = {
+  promptId: string;
+  name: string;
+  placement: "prepend" | "append" | "post_process";
+};
+
+const PLACEMENT_SHORT: Record<SearchPromptOption["placement"], string> = {
+  prepend: "pre",
+  append: "post",
+  post_process: "rewrite",
+};
+
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -43,6 +55,10 @@ export function SearchScreen(props: {
   onDeleteHistory?: (searchId: string) => void;
   onClearHistory?: () => void;
   isDeletingHistory?: boolean;
+  // Prompt selection
+  availablePrompts?: SearchPromptOption[];
+  selectedPromptIds?: string[];
+  onTogglePrompt?: (promptId: string) => void;
 }) {
   const hasAnswer = Boolean(props.answer);
   const hasHistory = (props.history ?? []).length > 0;
@@ -84,6 +100,59 @@ export function SearchScreen(props: {
               </button>
             </div>
           </div>
+
+          {(props.availablePrompts?.length ?? 0) > 0 ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase tracking-wide text-[var(--muted-2)]">
+                Prompts:
+              </span>
+              {props.availablePrompts!.map((p) => {
+                const active =
+                  props.selectedPromptIds?.includes(p.promptId) ?? false;
+                return (
+                  <button
+                    key={p.promptId}
+                    onClick={() => props.onTogglePrompt?.(p.promptId)}
+                    type="button"
+                    className={
+                      active
+                        ? "rounded-full border border-[var(--accent)] bg-[var(--accent)] px-3 py-1 text-xs text-white"
+                        : "rounded-full border border-[color:var(--border)] bg-[var(--surface-2)] px-3 py-1 text-xs text-[var(--muted)] hover:bg-[var(--surface-3)]"
+                    }
+                    title={`Placement: ${p.placement}`}
+                  >
+                    {p.name}
+                    <span
+                      className={
+                        active
+                          ? "ml-1.5 text-[10px] uppercase text-white/80"
+                          : "ml-1.5 text-[10px] uppercase text-[var(--muted-2)]"
+                      }
+                    >
+                      {PLACEMENT_SHORT[p.placement]}
+                    </span>
+                  </button>
+                );
+              })}
+              <a
+                href="/prompts"
+                className="ml-auto text-xs text-[var(--muted)] underline-offset-2 hover:underline"
+              >
+                Manage prompts
+              </a>
+            </div>
+          ) : (
+            <div className="mt-4 text-xs text-[var(--muted-2)]">
+              No custom prompts yet.{" "}
+              <a
+                href="/prompts"
+                className="text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                Create one
+              </a>{" "}
+              to customize research.
+            </div>
+          )}
 
           {props.error ? (
             <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700">

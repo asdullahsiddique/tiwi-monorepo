@@ -1,61 +1,57 @@
-import { StateGraph, END, START } from "@langchain/langgraph";
+import { END, START, StateGraph } from "@langchain/langgraph";
 import { EnrichmentStateAnnotation, type EnrichmentState } from "./state";
-import { extractEntities } from "./nodes/extractEntities";
-import { extractTableEntities } from "./nodes/extractTableEntities";
-import { resolveEntities } from "./nodes/resolveEntities";
-import { extractRelationships } from "./nodes/extractRelationships";
-import { validateTypes } from "./nodes/validateTypes";
+import type { F1LookupStore } from "./f1LookupStore";
+import { createExtractDriversNode } from "./nodes/extractDrivers";
+import { createExtractConstructorsAndSeatsNode } from "./nodes/extractConstructorsAndSeats";
+import { createExtractCircuitsAndSeasonsNode } from "./nodes/extractCircuitsAndSeasons";
+import { createExtractGrandsPrixNode } from "./nodes/extractGrandsPrix";
+import { createExtractResultsNode } from "./nodes/extractResults";
+import { createExtractIncidentsAndPenaltiesNode } from "./nodes/extractIncidentsAndPenalties";
+import { createExtractMediaEntitiesNode } from "./nodes/extractMediaEntities";
 import { validateOutput } from "./nodes/validateOutput";
 
 /**
- * Conditional edge: Should we retry extraction?
- * Routes back to extractEntities if validation failed and we can retry.
- */
-function shouldRetry(state: EnrichmentState): "extractEntities" | "__end__" {
-  return state.validationPassed ? "__end__" : "extractEntities";
-}
-
-/**
- * Build and compile the enrichment graph.
+ * Tier-ordered F1 enrichment graph.
  *
- * Graph flow (linear, with internal conditional logic in each node):
- * START -> extractEntities -> validateTypes -> extractTableEntities -> resolveEntities -> extractRelationships -> validateOutput -> [retry?] -> END
- *
- * Each node handles its own conditional logic:
- * - validateTypes: skips if no proposed types
- * - extractTableEntities: parses markdown tables from extracted text, maps rows to entities
- * - resolveEntities: skips if no existing entities to match against
- * - validateOutput: determines if retry is needed
+ * Each node extracts one or more document types. Later nodes can read
+ * earlier-tier output from state for foreign-key resolution (driverId,
+ * constructorId, etc.), with the injected `lookupStore` as a fallback for
+ * entities persisted by previous files.
  */
-export function buildEnrichmentGraph() {
+export function buildEnrichmentGraph(lookupStore: F1LookupStore) {
   const graph = new StateGraph(EnrichmentStateAnnotation)
-    // Add all nodes
-    .addNode("extractEntities", extractEntities)
-    .addNode("validateTypes", validateTypes)
-    .addNode("extractTableEntities", extractTableEntities)
-    .addNode("resolveEntities", resolveEntities)
-    .addNode("extractRelationships", extractRelationships)
+    .addNode("extractDrivers", createExtractDriversNode(lookupStore))
+    .addNode(
+      "extractConstructorsAndSeats",
+      createExtractConstructorsAndSeatsNode(lookupStore),
+    )
+    .addNode(
+      "extractCircuitsAndSeasons",
+      createExtractCircuitsAndSeasonsNode(lookupStore),
+    )
+    .addNode("extractGrandsPrix", createExtractGrandsPrixNode(lookupStore))
+    .addNode("extractResults", createExtractResultsNode(lookupStore))
+    .addNode(
+      "extractIncidentsAndPenalties",
+      createExtractIncidentsAndPenaltiesNode(lookupStore),
+    )
+    .addNode(
+      "extractMediaEntities",
+      createExtractMediaEntitiesNode(lookupStore),
+    )
     .addNode("validateOutput", validateOutput)
-
-    // Linear flow: each node decides internally what to do
-    .addEdge(START, "extractEntities")
-    .addEdge("extractEntities", "validateTypes")
-    .addEdge("validateTypes", "extractTableEntities")
-    .addEdge("extractTableEntities", "resolveEntities")
-    .addEdge("resolveEntities", "extractRelationships")
-    .addEdge("extractRelationships", "validateOutput")
-    .addConditionalEdges("validateOutput", shouldRetry, {
-      extractEntities: "extractEntities",
-      __end__: END,
-    });
+    .addEdge(START, "extractDrivers")
+    .addEdge("extractDrivers", "extractConstructorsAndSeats")
+    .addEdge("extractConstructorsAndSeats", "extractCircuitsAndSeasons")
+    .addEdge("extractCircuitsAndSeasons", "extractGrandsPrix")
+    .addEdge("extractGrandsPrix", "extractResults")
+    .addEdge("extractResults", "extractIncidentsAndPenalties")
+    .addEdge("extractIncidentsAndPenalties", "extractMediaEntities")
+    .addEdge("extractMediaEntities", "validateOutput")
+    .addEdge("validateOutput", END);
 
   return graph.compile();
 }
 
-/**
- * The compiled enrichment graph.
- * Call with initial state to run the full extraction pipeline.
- */
-export const enrichmentGraph = buildEnrichmentGraph();
-
-export type EnrichmentGraphType = typeof enrichmentGraph;
+export type EnrichmentGraph = ReturnType<typeof buildEnrichmentGraph>;
+export type { EnrichmentState };

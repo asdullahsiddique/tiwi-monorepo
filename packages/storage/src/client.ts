@@ -18,6 +18,12 @@ export function createS3Client(env: NodeJS.ProcessEnv = process.env): {
         },
       }),
     ...(cfg.S3_FORCE_PATH_STYLE && { forcePathStyle: cfg.S3_FORCE_PATH_STYLE }),
+    // AWS SDK v3 (>=3.729) injects x-amz-checksum-crc32 into presigned URLs by
+    // default. MinIO/R2 then validate that checksum against the real body and
+    // reject browser PUTs with 403. Disable request checksums so presigned PUTs
+    // work with S3-compatible backends.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
   return { client, bucket: cfg.S3_BUCKET };
 }

@@ -1,89 +1,164 @@
 import { Annotation } from "@langchain/langgraph";
 import type {
-  ExtractedEntity,
-  ExtractedRelationship,
-  ProposedType,
-  ResolvedMatch,
-  DecisionLog,
   AICallUsage,
-  EntityTypeContext,
-  ExistingEntityContext,
+  DecisionLog,
+  DraftCar,
+  DraftCircuit,
+  DraftConstructor,
+  DraftDriver,
+  DraftDriverSeat,
+  DraftGrandPrix,
+  DraftIncident,
+  DraftPenalty,
+  DraftPitStop,
+  DraftQualifyingResult,
+  DraftQuote,
+  DraftRaceResult,
+  DraftSeason,
+  DraftSprintResult,
+  DraftTeamPrincipal,
+  DraftTransferRumour,
+  DraftTyreCompound,
 } from "./types";
 
 /**
- * LangGraph state annotation for the enrichment workflow.
- * Uses reducers to accumulate entities, relationships, and logs across nodes.
+ * De-dup helper. Keeps the FIRST occurrence (earlier tier nodes win on
+ * conflicts, e.g. if both extractDrivers and a later node emit the same
+ * driver the first wins). The key is the caller's responsibility.
+ */
+function mergeBy<T>(
+  a: readonly T[],
+  b: readonly T[],
+  keyOf: (x: T) => string,
+): T[] {
+  const seen = new Set(a.map(keyOf));
+  const out = [...a];
+  for (const item of b) {
+    const k = keyOf(item);
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+const byEntityId = <T extends { entityId: string }>(x: T) => x.entityId;
+const byNameLower = <T extends { name: string }>(x: T) =>
+  x.name.toLowerCase();
+const byDriverNameLower = <T extends { name: string }>(x: T) =>
+  x.name.toLowerCase();
+
+// Reference entities dedup by nameLower (multiple aliases → same driver).
+function refReducer<T extends { entityId: string; name: string }>(
+  a: T[],
+  b: T[],
+): T[] {
+  return mergeBy(a, b, byNameLower);
+}
+
+// Fact documents dedup by entityId (caller pre-generates unique ids per fact).
+function factReducer<T extends { entityId: string }>(a: T[], b: T[]): T[] {
+  return mergeBy(a, b, byEntityId);
+}
+
+/**
+ * LangGraph state annotation for the F1 enrichment workflow.
+ *
+ * Each tier node emits a partial state update containing the per-type arrays
+ * it owns. Reducers merge into the accumulating state so downstream nodes can
+ * read earlier-tier output via `state.drivers`, `state.constructors`, etc.
  */
 export const EnrichmentStateAnnotation = Annotation.Root({
-  // Input fields (set once at the start)
-  text: Annotation<string>({
-    reducer: (_, b) => b,
-    default: () => "",
-  }),
-  existingTypes: Annotation<EntityTypeContext[]>({
-    reducer: (_, b) => b,
-    default: () => [],
-  }),
-  existingEntities: Annotation<ExistingEntityContext[]>({
+  // --- Input ---
+  orgId: Annotation<string>({ reducer: (_, b) => b, default: () => "" }),
+  fileId: Annotation<string>({ reducer: (_, b) => b, default: () => "" }),
+  text: Annotation<string>({ reducer: (_, b) => b, default: () => "" }),
+  sourceChunkIds: Annotation<string[]>({
     reducer: (_, b) => b,
     default: () => [],
   }),
 
-  // Extraction results (accumulated across nodes)
-  entities: Annotation<ExtractedEntity[]>({
-    reducer: (a, b) => {
-      // Merge entities, avoiding duplicates by name+typeName
-      const existing = new Set(a.map((e) => `${e.typeName}:${e.name.toLowerCase()}`));
-      const newEntities = b.filter(
-        (e) => !existing.has(`${e.typeName}:${e.name.toLowerCase()}`)
-      );
-      return [...a, ...newEntities];
-    },
+  // --- Tier 1: reference entities ---
+  drivers: Annotation<DraftDriver[]>({
+    reducer: refReducer,
     default: () => [],
   }),
-  relationships: Annotation<ExtractedRelationship[]>({
-    reducer: (a, b) => {
-      // Merge relationships, avoiding duplicates
-      const existing = new Set(
-        a.map(
-          (r) =>
-            `${r.fromTypeName}:${r.fromName.toLowerCase()}:${r.relationshipType}:${r.toTypeName}:${r.toName.toLowerCase()}`
-        )
-      );
-      const newRels = b.filter(
-        (r) =>
-          !existing.has(
-            `${r.fromTypeName}:${r.fromName.toLowerCase()}:${r.relationshipType}:${r.toTypeName}:${r.toName.toLowerCase()}`
-          )
-      );
-      return [...a, ...newRels];
-    },
+  constructors: Annotation<DraftConstructor[]>({
+    reducer: refReducer,
     default: () => [],
   }),
-  proposedTypes: Annotation<ProposedType[]>({
-    reducer: (a, b) => {
-      // Merge proposed types, avoiding duplicates by typeName
-      const existing = new Set(a.map((t) => t.typeName.toLowerCase()));
-      const newTypes = b.filter((t) => !existing.has(t.typeName.toLowerCase()));
-      return [...a, ...newTypes];
-    },
+  teamPrincipals: Annotation<DraftTeamPrincipal[]>({
+    reducer: refReducer,
     default: () => [],
   }),
-  resolvedMatches: Annotation<ResolvedMatch[]>({
-    reducer: (a, b) => [...a, ...b],
+  circuits: Annotation<DraftCircuit[]>({
+    reducer: refReducer,
     default: () => [],
   }),
-  createdTypes: Annotation<ProposedType[]>({
-    reducer: (a, b) => {
-      // Types that were actually created in the TypeRegistry
-      const existing = new Set(a.map((t) => t.typeName.toLowerCase()));
-      const newTypes = b.filter((t) => !existing.has(t.typeName.toLowerCase()));
-      return [...a, ...newTypes];
-    },
+  seasons: Annotation<DraftSeason[]>({
+    reducer: (a, b) =>
+      mergeBy(a, b, (s) =>
+        s.year !== undefined ? `year:${s.year}` : byDriverNameLower(s),
+      ),
+    default: () => [],
+  }),
+  grandsPrix: Annotation<DraftGrandPrix[]>({
+    reducer: refReducer,
+    default: () => [],
+  }),
+  driverSeats: Annotation<DraftDriverSeat[]>({
+    reducer: factReducer,
     default: () => [],
   }),
 
-  // Tracking (accumulated)
+  // --- Tier 2: results (numeric-heavy) ---
+  raceResults: Annotation<DraftRaceResult[]>({
+    reducer: factReducer,
+    default: () => [],
+  }),
+  qualifyingResults: Annotation<DraftQualifyingResult[]>({
+    reducer: factReducer,
+    default: () => [],
+  }),
+  sprintResults: Annotation<DraftSprintResult[]>({
+    reducer: factReducer,
+    default: () => [],
+  }),
+  pitStops: Annotation<DraftPitStop[]>({
+    reducer: factReducer,
+    default: () => [],
+  }),
+
+  // --- Tier 3: regulatory ---
+  incidents: Annotation<DraftIncident[]>({
+    reducer: factReducer,
+    default: () => [],
+  }),
+  penalties: Annotation<DraftPenalty[]>({
+    reducer: factReducer,
+    default: () => [],
+  }),
+
+  // --- Tier 4: contextual ---
+  cars: Annotation<DraftCar[]>({
+    reducer: factReducer,
+    default: () => [],
+  }),
+  tyreCompounds: Annotation<DraftTyreCompound[]>({
+    reducer: factReducer,
+    default: () => [],
+  }),
+  quotes: Annotation<DraftQuote[]>({
+    reducer: factReducer,
+    default: () => [],
+  }),
+  transferRumours: Annotation<DraftTransferRumour[]>({
+    reducer: factReducer,
+    default: () => [],
+  }),
+
+  // --- Tracking ---
   decisions: Annotation<DecisionLog[]>({
     reducer: (a, b) => [...a, ...b],
     default: () => [],
@@ -97,7 +172,7 @@ export const EnrichmentStateAnnotation = Annotation.Root({
     default: () => [],
   }),
 
-  // Control flow
+  // --- Control flow ---
   retryCount: Annotation<number>({
     reducer: (_, b) => b,
     default: () => 0,

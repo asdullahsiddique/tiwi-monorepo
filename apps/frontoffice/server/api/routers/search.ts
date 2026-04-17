@@ -9,10 +9,16 @@ export const searchRouter = router({
     .input(
       z.object({
         query: z.string().min(1),
+        promptIds: z.array(z.string().min(1)).max(20).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const result = await semanticSearch({ orgId: ctx.orgId, query: input.query, topK: 8 });
+      const result = await semanticSearch({
+        orgId: ctx.orgId,
+        query: input.query,
+        topK: 8,
+        promptIds: input.promptIds,
+      });
 
       const db = await getMongoDb();
       const searchHistoryRepo = new SearchHistoryRepository(db);

@@ -18,10 +18,14 @@ function getClientPromise(env: NodeJS.ProcessEnv = process.env): Promise<MongoCl
 /**
  * Connected MongoDB database (singleton client per process).
  */
+const MONGO_DB_NAME = "tiwi";
+
 export async function getMongoDb(env: NodeJS.ProcessEnv = process.env): Promise<Db> {
   const client = await getClientPromise(env);
-  const db = client.db();
-  await ensureMongoIndexes(db);
+  const db = client.db(MONGO_DB_NAME);
+  // Kick off index creation fire-and-forget so the first request doesn't
+  // block on ~50 Atlas index creations. Queries work without indexes.
+  void ensureMongoIndexes(db);
   return db;
 }
 

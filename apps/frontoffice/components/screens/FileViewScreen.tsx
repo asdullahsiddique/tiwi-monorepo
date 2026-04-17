@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import type { AIExecutionLogRecord, ProcessingLogRecord } from "@tiwi/mongodb";
-import { EntityGraph } from "../EntityGraph";
 
 type AILogSummary = {
   purpose: string;
@@ -40,26 +39,10 @@ function summarizeAILogs(logs: AIExecutionLogRecord[]): AILogSummary[] {
 }
 
 const LOG_LEVEL_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  DEBUG: {
-    bg: "bg-slate-500/10",
-    text: "text-slate-600",
-    border: "border-slate-500/30",
-  },
-  INFO: {
-    bg: "bg-blue-500/10",
-    text: "text-blue-600",
-    border: "border-blue-500/30",
-  },
-  WARN: {
-    bg: "bg-amber-500/10",
-    text: "text-amber-600",
-    border: "border-amber-500/30",
-  },
-  ERROR: {
-    bg: "bg-red-500/10",
-    text: "text-red-600",
-    border: "border-red-500/30",
-  },
+  DEBUG: { bg: "bg-slate-500/10", text: "text-slate-600", border: "border-slate-500/30" },
+  INFO: { bg: "bg-blue-500/10", text: "text-blue-600", border: "border-blue-500/30" },
+  WARN: { bg: "bg-amber-500/10", text: "text-amber-600", border: "border-amber-500/30" },
+  ERROR: { bg: "bg-red-500/10", text: "text-red-600", border: "border-red-500/30" },
 };
 
 function getLogLevelStyle(level: string) {
@@ -67,36 +50,12 @@ function getLogLevelStyle(level: string) {
 }
 
 const FILE_STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  UPLOADING: {
-    bg: "bg-slate-500/10",
-    text: "text-slate-600",
-    border: "border-slate-500/30",
-  },
-  UPLOADED: {
-    bg: "bg-slate-500/10",
-    text: "text-slate-600",
-    border: "border-slate-500/30",
-  },
-  QUEUED: {
-    bg: "bg-amber-500/10",
-    text: "text-amber-600",
-    border: "border-amber-500/30",
-  },
-  PROCESSING: {
-    bg: "bg-blue-500/10",
-    text: "text-blue-600",
-    border: "border-blue-500/30",
-  },
-  PROCESSED: {
-    bg: "bg-emerald-500/10",
-    text: "text-emerald-600",
-    border: "border-emerald-500/30",
-  },
-  FAILED: {
-    bg: "bg-red-500/10",
-    text: "text-red-600",
-    border: "border-red-500/30",
-  },
+  UPLOADING: { bg: "bg-slate-500/10", text: "text-slate-600", border: "border-slate-500/30" },
+  UPLOADED: { bg: "bg-slate-500/10", text: "text-slate-600", border: "border-slate-500/30" },
+  QUEUED: { bg: "bg-amber-500/10", text: "text-amber-600", border: "border-amber-500/30" },
+  PROCESSING: { bg: "bg-blue-500/10", text: "text-blue-600", border: "border-blue-500/30" },
+  PROCESSED: { bg: "bg-emerald-500/10", text: "text-emerald-600", border: "border-emerald-500/30" },
+  FAILED: { bg: "bg-red-500/10", text: "text-red-600", border: "border-red-500/30" },
 };
 
 function getFileStatusStyle(status: string) {
@@ -109,7 +68,7 @@ function ProcessingLogDetailModal(props: {
 }) {
   const style = getLogLevelStyle(props.log.level);
   const metadata = props.log.metadata as Record<string, unknown> | undefined;
-  
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[var(--background)] shadow-xl">
@@ -131,36 +90,12 @@ function ProcessingLogDetailModal(props: {
         </div>
         <div className="max-h-[60vh] overflow-y-auto p-6">
           <div className="text-sm font-medium">{props.log.message}</div>
-          
-          {typeof metadata?.error !== "undefined" && metadata?.error !== null && (
-            <div className="mt-4">
-              <div className="text-xs font-medium text-[var(--muted-2)] uppercase tracking-wider">Error</div>
-              <div className="mt-2 rounded-lg bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-700 font-mono">
-                {String(metadata.error)}
-              </div>
-            </div>
-          )}
-          
-          {typeof metadata?.stack !== "undefined" && metadata?.stack !== null && (
-            <div className="mt-4">
-              <div className="text-xs font-medium text-[var(--muted-2)] uppercase tracking-wider">Stack trace</div>
-              <pre className="mt-2 overflow-x-auto rounded-lg bg-[var(--surface-2)] p-3 text-xs font-mono text-[var(--muted)] whitespace-pre-wrap">
-                {String(metadata.stack)}
-              </pre>
-            </div>
-          )}
-          
-          {metadata && Object.keys(metadata).filter(k => k !== 'error' && k !== 'stack').length > 0 && (
+
+          {metadata && Object.keys(metadata).length > 0 && (
             <div className="mt-4">
               <div className="text-xs font-medium text-[var(--muted-2)] uppercase tracking-wider">Metadata</div>
               <pre className="mt-2 overflow-x-auto rounded-lg bg-[var(--surface-2)] p-3 text-xs font-mono text-[var(--muted)]">
-                {JSON.stringify(
-                  Object.fromEntries(
-                    Object.entries(metadata).filter(([k]) => k !== 'error' && k !== 'stack')
-                  ),
-                  null,
-                  2
-                )}
+                {JSON.stringify(metadata, null, 2)}
               </pre>
             </div>
           )}
@@ -216,68 +151,69 @@ function AILogsModal(props: {
   );
 }
 
-export type FileViewEntity = {
+export type FileViewEntityDoc = {
   entityId: string;
-  typeName: string;
   name: string;
-  properties: Record<string, unknown>;
-  typeStatus?: 'active' | 'draft';
+  [k: string]: unknown;
 };
 
-export type FileViewRelationship = {
-  relationshipId: string;
-  fromTypeName: string;
-  fromName: string;
-  toTypeName: string;
-  toName: string;
-  relationshipType: string;
-  properties: Record<string, unknown>;
+export type FileViewEntityGroup = {
+  collection: string;
+  docs: FileViewEntityDoc[];
 };
 
-// Tailwind color classes for deterministic entity type colors
-const TAILWIND_COLOR_CLASSES = [
-  { bg: "bg-blue-500/10", text: "text-blue-600", border: "border-blue-500/30" },
-  { bg: "bg-emerald-500/10", text: "text-emerald-600", border: "border-emerald-500/30" },
-  { bg: "bg-amber-500/10", text: "text-amber-600", border: "border-amber-500/30" },
-  { bg: "bg-red-500/10", text: "text-red-600", border: "border-red-500/30" },
-  { bg: "bg-violet-500/10", text: "text-violet-600", border: "border-violet-500/30" },
-  { bg: "bg-pink-500/10", text: "text-pink-600", border: "border-pink-500/30" },
-  { bg: "bg-cyan-500/10", text: "text-cyan-600", border: "border-cyan-500/30" },
-  { bg: "bg-orange-500/10", text: "text-orange-600", border: "border-orange-500/30" },
-  { bg: "bg-indigo-500/10", text: "text-indigo-600", border: "border-indigo-500/30" },
-  { bg: "bg-teal-500/10", text: "text-teal-600", border: "border-teal-500/30" },
-  { bg: "bg-lime-500/10", text: "text-lime-600", border: "border-lime-500/30" },
-  { bg: "bg-purple-500/10", text: "text-purple-600", border: "border-purple-500/30" },
-  { bg: "bg-green-500/10", text: "text-green-600", border: "border-green-500/30" },
-  { bg: "bg-yellow-500/10", text: "text-yellow-600", border: "border-yellow-500/30" },
-  { bg: "bg-sky-500/10", text: "text-sky-600", border: "border-sky-500/30" },
-  { bg: "bg-fuchsia-500/10", text: "text-fuchsia-600", border: "border-fuchsia-500/30" },
-  { bg: "bg-rose-500/10", text: "text-rose-600", border: "border-rose-500/30" },
-  { bg: "bg-slate-500/10", text: "text-slate-600", border: "border-slate-500/30" },
-];
+const COLLECTION_LABELS: Record<string, string> = {
+  f1_drivers: "Drivers",
+  f1_constructors: "Constructors",
+  f1_team_principals: "Team Principals",
+  f1_circuits: "Circuits",
+  f1_seasons: "Seasons",
+  f1_driver_seats: "Driver Seats",
+  f1_grand_prix: "Grands Prix",
+  f1_race_results: "Race Results",
+  f1_qualifying_results: "Qualifying Results",
+  f1_sprint_results: "Sprint Results",
+  f1_pit_stops: "Pit Stops",
+  f1_incidents: "Incidents",
+  f1_penalties: "Penalties",
+  f1_cars: "Cars",
+  f1_tyre_compounds: "Tyre Compounds",
+  f1_quotes: "Quotes",
+  f1_transfer_rumours: "Transfer Rumours",
+};
 
-/**
- * Simple hash function for strings.
- * Returns a consistent number for the same input string.
- */
-function hashString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash);
+const COLLECTION_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  f1_drivers: { bg: "bg-blue-500/10", text: "text-blue-600", border: "border-blue-500/30" },
+  f1_constructors: { bg: "bg-red-500/10", text: "text-red-600", border: "border-red-500/30" },
+  f1_team_principals: { bg: "bg-violet-500/10", text: "text-violet-600", border: "border-violet-500/30" },
+  f1_circuits: { bg: "bg-emerald-500/10", text: "text-emerald-600", border: "border-emerald-500/30" },
+  f1_seasons: { bg: "bg-amber-500/10", text: "text-amber-600", border: "border-amber-500/30" },
+  f1_driver_seats: { bg: "bg-cyan-500/10", text: "text-cyan-600", border: "border-cyan-500/30" },
+  f1_grand_prix: { bg: "bg-pink-500/10", text: "text-pink-600", border: "border-pink-500/30" },
+  f1_race_results: { bg: "bg-orange-500/10", text: "text-orange-600", border: "border-orange-500/30" },
+  f1_qualifying_results: { bg: "bg-indigo-500/10", text: "text-indigo-600", border: "border-indigo-500/30" },
+  f1_sprint_results: { bg: "bg-teal-500/10", text: "text-teal-600", border: "border-teal-500/30" },
+  f1_pit_stops: { bg: "bg-lime-500/10", text: "text-lime-600", border: "border-lime-500/30" },
+  f1_incidents: { bg: "bg-rose-500/10", text: "text-rose-600", border: "border-rose-500/30" },
+  f1_penalties: { bg: "bg-fuchsia-500/10", text: "text-fuchsia-600", border: "border-fuchsia-500/30" },
+  f1_cars: { bg: "bg-purple-500/10", text: "text-purple-600", border: "border-purple-500/30" },
+  f1_tyre_compounds: { bg: "bg-green-500/10", text: "text-green-600", border: "border-green-500/30" },
+  f1_quotes: { bg: "bg-yellow-500/10", text: "text-yellow-600", border: "border-yellow-500/30" },
+  f1_transfer_rumours: { bg: "bg-sky-500/10", text: "text-sky-600", border: "border-sky-500/30" },
+};
+
+function getCollectionStyle(collection: string) {
+  return (
+    COLLECTION_COLORS[collection] ?? {
+      bg: "bg-slate-500/10",
+      text: "text-slate-600",
+      border: "border-slate-500/30",
+    }
+  );
 }
 
-/**
- * Get deterministic color classes for an entity type.
- * Same type name will always produce the same color.
- */
-function getEntityTypeColor(typeName: string) {
-  const hash = hashString(typeName);
-  const index = hash % TAILWIND_COLOR_CLASSES.length;
-  return TAILWIND_COLOR_CLASSES[index];
+function getCollectionLabel(collection: string) {
+  return COLLECTION_LABELS[collection] ?? collection;
 }
 
 export function FileViewScreen(props: {
@@ -290,14 +226,13 @@ export function FileViewScreen(props: {
   embeddingsMeta: { chunkCount: number; model?: string };
   processingLogs: ProcessingLogRecord[];
   aiLogs: AIExecutionLogRecord[];
-  entities: FileViewEntity[];
-  relationships: FileViewRelationship[];
+  f1Entities: FileViewEntityGroup[];
   onReprocess?: () => void;
   isReprocessing?: boolean;
 }) {
   const [selectedAILogSummary, setSelectedAILogSummary] = useState<AILogSummary | null>(null);
   const [selectedProcessingLog, setSelectedProcessingLog] = useState<ProcessingLogRecord | null>(null);
-  
+
   const aiLogSummaries = useMemo(() => summarizeAILogs(props.aiLogs), [props.aiLogs]);
   const totalAICost = useMemo(
     () => props.aiLogs.reduce((sum, l) => sum + l.costUsd, 0),
@@ -306,6 +241,10 @@ export function FileViewScreen(props: {
   const totalAITokens = useMemo(
     () => props.aiLogs.reduce((sum, l) => sum + l.totalTokens, 0),
     [props.aiLogs]
+  );
+  const entityCount = useMemo(
+    () => props.f1Entities.reduce((sum, g) => sum + g.docs.length, 0),
+    [props.f1Entities]
   );
 
   return (
@@ -428,25 +367,6 @@ export function FileViewScreen(props: {
             </div>
           </section>
 
-          {/* Knowledge Graph Visualization */}
-          {(props.entities.length > 0 || props.relationships.length > 0) && (
-            <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
-              <div className="flex items-center justify-between mb-4">
-                <div className="text-sm font-medium">Knowledge Graph</div>
-                <div className="text-xs text-[var(--muted)]">
-                  {props.entities.length} entities · {props.relationships.length} relationships
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-200 overflow-hidden shadow-inner">
-                <EntityGraph
-                  entities={props.entities}
-                  relationships={props.relationships}
-                  height={500}
-                />
-              </div>
-            </section>
-          )}
-
           <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
             <div className="text-sm font-medium">Processing logs</div>
             <div className="mt-3 space-y-2 text-xs">
@@ -455,10 +375,7 @@ export function FileViewScreen(props: {
               ) : (
                 props.processingLogs.map((l) => {
                   const style = getLogLevelStyle(l.level);
-                  const hasDetails = l.level === "ERROR" || l.metadata;
-                  const metadata = l.metadata as Record<string, unknown> | undefined;
-                  const errorMessage = metadata?.error ? String(metadata.error) : null;
-                  
+                  const hasDetails = l.level === "ERROR" || Boolean(l.metadata);
                   return (
                     <button
                       key={l.logId}
@@ -474,16 +391,9 @@ export function FileViewScreen(props: {
                             {l.level}
                           </span>
                           <span className="font-medium text-[var(--foreground)] truncate">
-                            {l.level === "ERROR" && errorMessage 
-                              ? errorMessage.slice(0, 50) + (errorMessage.length > 50 ? "..." : "")
-                              : l.message}
+                            {l.message}
                           </span>
                         </div>
-                        {hasDetails && (
-                          <svg className="h-4 w-4 flex-shrink-0 text-[var(--muted-2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
-                        )}
                       </div>
                       <div className="mt-1 text-[var(--muted-2)]">
                         {new Date(l.createdAt).toLocaleString()}
@@ -560,85 +470,39 @@ export function FileViewScreen(props: {
           )}
 
           <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
-            <div className="text-sm font-medium">Extracted Entities</div>
-            <div className="mt-3">
-              {props.entities.length === 0 ? (
-                <div className="text-sm text-[var(--muted)]">No entities extracted yet.</div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {props.entities.map((e) => {
-                    const color = getEntityTypeColor(e.typeName);
-                    const isDraft = e.typeStatus === "draft";
-                    return (
-                      <div
-                        key={e.entityId}
-                        className={`rounded-lg px-3 py-2 ${color.bg} ${isDraft ? "border border-dashed border-amber-400" : `border ${color.border}`}`}
-                      >
-                        <div className={`flex items-center gap-1.5 text-xs font-medium ${color.text}`}>
-                          {e.typeName}
-                          {isDraft && (
-                            <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
-                              draft
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-0.5 text-sm font-medium text-[var(--foreground)]">
-                          {e.name}
-                        </div>
-                        {Object.keys(e.properties).length > 0 && (
-                          <div className="mt-1 text-xs text-[var(--muted-2)]">
-                            {Object.entries(e.properties)
-                              .slice(0, 2)
-                              .map(([k, v]) => `${k}: ${String(v)}`)
-                              .join(", ")}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium">F1 Entities</div>
+              <div className="text-xs text-[var(--muted-2)]">
+                {entityCount} total · {props.f1Entities.length} collections
+              </div>
             </div>
-          </section>
-
-          <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
-            <div className="text-sm font-medium">Relationships</div>
-            <div className="mt-3">
-              {props.relationships.length === 0 ? (
-                <div className="text-sm text-[var(--muted)]">No relationships extracted yet.</div>
+            <div className="mt-3 space-y-4">
+              {props.f1Entities.length === 0 ? (
+                <div className="text-sm text-[var(--muted)]">No F1 entities extracted yet.</div>
               ) : (
-                <div className="space-y-2">
-                  {props.relationships.map((r) => {
-                    const fromColor = getEntityTypeColor(r.fromTypeName);
-                    const toColor = getEntityTypeColor(r.toTypeName);
-                    return (
+                props.f1Entities.map((group) => {
+                  const style = getCollectionStyle(group.collection);
+                  return (
+                    <div key={group.collection}>
                       <div
-                        key={r.relationshipId}
-                        className="rounded-lg border border-[color:var(--border)] bg-[var(--surface-2)] px-3 py-2"
+                        className={`mb-2 inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-medium ${style.bg} ${style.text} ${style.border}`}
                       >
-                        <div className="flex items-center gap-2 text-sm flex-wrap">
-                          <span className={`rounded-md border px-2 py-0.5 text-xs font-medium ${fromColor.bg} ${fromColor.text} ${fromColor.border}`}>
-                            {r.fromTypeName}
-                          </span>
-                          <span className="font-medium text-[var(--foreground)]">{r.fromName}</span>
-                          <svg className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                          </svg>
-                          <span className="rounded-full bg-[var(--accent)]/10 px-2 py-0.5 text-xs font-medium text-[var(--accent)]">
-                            {r.relationshipType}
-                          </span>
-                          <svg className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                          </svg>
-                          <span className={`rounded-md border px-2 py-0.5 text-xs font-medium ${toColor.bg} ${toColor.text} ${toColor.border}`}>
-                            {r.toTypeName}
-                          </span>
-                          <span className="font-medium text-[var(--foreground)]">{r.toName}</span>
-                        </div>
+                        {getCollectionLabel(group.collection)}
+                        <span className="text-[var(--muted-2)]">{group.docs.length}</span>
                       </div>
-                    );
-                  })}
-                </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {group.docs.map((d) => (
+                          <span
+                            key={d.entityId}
+                            className="rounded-md border border-[color:var(--border)] bg-[var(--surface-2)] px-2 py-1 text-xs text-[var(--foreground)]"
+                          >
+                            {d.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </section>

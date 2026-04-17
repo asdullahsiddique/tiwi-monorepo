@@ -4,27 +4,15 @@ import {
   EmbeddingRepository,
   FileRepository,
   LogRepository,
-  EntityRepository,
-  TypeRegistryRepository,
+  F1Repository,
+  type F1BaseDocument,
+  type F1CollectionName,
 } from "@tiwi/mongodb";
 import { createPresignedGetUrl } from "@tiwi/storage";
 
-export type FileViewEntity = {
-  entityId: string;
-  typeName: string;
-  name: string;
-  properties: Record<string, unknown>;
-  typeStatus?: "active" | "draft";
-};
-
-export type FileViewRelationship = {
-  relationshipId: string;
-  fromTypeName: string;
-  fromName: string;
-  toTypeName: string;
-  toName: string;
-  relationshipType: string;
-  properties: Record<string, unknown>;
+export type FileViewEntityGroup = {
+  collection: F1CollectionName;
+  docs: F1BaseDocument[];
 };
 
 export async function getFileView(params: {
@@ -39,8 +27,7 @@ export async function getFileView(params: {
   processingLogs: Awaited<ReturnType<LogRepository["listProcessingLogs"]>>;
   aiLogs: Awaited<ReturnType<LogRepository["listAIExecutionLogs"]>>;
   embeddingsMeta: Awaited<ReturnType<EmbeddingRepository["getEmbeddingsMeta"]>>;
-  entities: FileViewEntity[];
-  relationships: FileViewRelationship[];
+  f1Entities: FileViewEntityGroup[];
 }> {
   const db = await getMongoDb();
 
@@ -48,8 +35,7 @@ export async function getFileView(params: {
   const logRepo = new LogRepository(db);
   const artifactRepo = new ArtifactRepository(db);
   const embeddingRepo = new EmbeddingRepository(db);
-  const entityRepo = new EntityRepository(db);
-  const typeRepo = new TypeRegistryRepository(db);
+  const f1Repo = new F1Repository(db);
 
   const file = await fileRepo.getFile({
     orgId: params.orgId,
@@ -78,37 +64,10 @@ export async function getFileView(params: {
     offset: 0,
   });
 
-  const entitiesRaw = await entityRepo.getEntitiesByFile({
+  const f1Entities = await f1Repo.getEntitiesByFile({
     orgId: params.orgId,
     fileId: params.fileId,
   });
-  const relationshipsRaw = await entityRepo.getRelationshipsByFile({
-    orgId: params.orgId,
-    fileId: params.fileId,
-  });
-
-  const allTypes = await typeRepo.listTypes({ orgId: params.orgId });
-  const typeStatusMap = new Map<string, "active" | "draft">(
-    allTypes.map((t) => [t.typeName, t.status]),
-  );
-
-  const entities: FileViewEntity[] = entitiesRaw.map((e) => ({
-    entityId: e.entityId,
-    typeName: e.typeName,
-    name: e.name,
-    properties: e.properties,
-    typeStatus: typeStatusMap.get(e.typeName),
-  }));
-
-  const relationships: FileViewRelationship[] = relationshipsRaw.map((r) => ({
-    relationshipId: r.relationshipId,
-    fromTypeName: r.fromTypeName,
-    fromName: r.fromName,
-    toTypeName: r.toTypeName,
-    toName: r.toName,
-    relationshipType: r.relationshipType,
-    properties: r.properties,
-  }));
 
   const downloadUrl = file
     ? await createPresignedGetUrl({
@@ -127,7 +86,6 @@ export async function getFileView(params: {
     processingLogs,
     aiLogs,
     embeddingsMeta,
-    entities,
-    relationships,
+    f1Entities,
   };
 }

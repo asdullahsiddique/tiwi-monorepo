@@ -29,6 +29,7 @@ export function ensureMongoIndexes(db: Db): Promise<void> {
     await db.collection(COLL.embeddingChunks).createIndex({ orgId: 1, fileId: 1 });
     await db.collection(COLL.searchHistory).createIndex({ orgId: 1, userId: 1, createdAt: -1 });
     await db.collection(COLL.fileProcessingJobs).createIndex({ status: 1, createdAt: 1 });
+    await db.collection(COLL.gpRaceResults).createIndex({ orgId: 1, fileId: 1 }, { unique: true });
 
     // --- F1 collections: shared indexes (entityId uniqueness + fileIds lookup) ---
     for (const coll of Object.values(F1_COLL)) {

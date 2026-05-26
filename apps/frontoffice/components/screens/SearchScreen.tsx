@@ -1,3 +1,6 @@
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 export type SearchCitation = {
   fileId: string;
   chunkId: string;
@@ -24,6 +27,70 @@ const PLACEMENT_SHORT: Record<SearchPromptOption["placement"], string> = {
   append: "post",
   post_process: "rewrite",
 };
+
+function MarkdownAnswer(props: { value: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => <p className="my-3 leading-7">{children}</p>,
+        ul: ({ children }) => (
+          <ul className="my-3 list-disc space-y-1 pl-5">{children}</ul>
+        ),
+        ol: ({ children }) => (
+          <ol className="my-3 list-decimal space-y-1 pl-5">{children}</ol>
+        ),
+        code: ({ children }) => (
+          <code className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 font-mono text-xs text-[var(--foreground)]">
+            {children}
+          </code>
+        ),
+        pre: ({ children }) => (
+          <pre className="my-4 overflow-x-auto rounded-xl border border-[color:var(--border)] bg-[var(--surface-2)] p-4 text-xs text-[var(--foreground)]">
+            {children}
+          </pre>
+        ),
+        table: ({ children }) => (
+          <div className="my-5 overflow-x-auto rounded-xl border border-[color:var(--border)]">
+            <table className="min-w-full divide-y divide-[color:var(--border)] text-sm">
+              {children}
+            </table>
+          </div>
+        ),
+        thead: ({ children }) => (
+          <thead className="bg-[var(--surface-2)] text-xs uppercase tracking-[0.14em] text-[var(--muted-2)]">
+            {children}
+          </thead>
+        ),
+        tbody: ({ children }) => (
+          <tbody className="divide-y divide-[color:var(--border)]">
+            {children}
+          </tbody>
+        ),
+        th: ({ children }) => (
+          <th className="px-3 py-3 text-left font-semibold">{children}</th>
+        ),
+        td: ({ children }) => (
+          <td className="px-3 py-2 align-top text-[var(--muted)]">
+            {children}
+          </td>
+        ),
+        a: ({ children, href }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[var(--accent)] underline-offset-2 hover:underline"
+          >
+            {children}
+          </a>
+        ),
+      }}
+    >
+      {props.value}
+    </ReactMarkdown>
+  );
+}
 
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -164,8 +231,8 @@ export function SearchScreen(props: {
             <div className="mt-8 space-y-6">
               <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
                 <div className="text-sm font-medium">Answer</div>
-                <div className="mt-3 whitespace-pre-wrap text-sm text-[var(--muted)]">
-                  {props.answer}
+                <div className="mt-3 text-sm text-[var(--muted)]">
+                  <MarkdownAnswer value={props.answer ?? ""} />
                 </div>
               </section>
 

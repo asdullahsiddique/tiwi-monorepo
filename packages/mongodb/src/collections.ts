@@ -11,6 +11,7 @@ export const COLL = {
   searchHistory: "search_history",
   customPrompts: "custom_prompts",
   fileProcessingJobs: "file_processing_jobs",
+  gpRaceResults: "gp_race_results",
   // F1 entity collections (16 typed collections)
   ...F1_COLL,
 } as const;

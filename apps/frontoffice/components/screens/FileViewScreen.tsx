@@ -1,7 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { AIExecutionLogRecord, ProcessingLogRecord } from "@tiwi/mongodb";
+import type {
+  AIExecutionLogRecord,
+  GpRaceResultDocument,
+  ProcessingLogRecord,
+} from "@tiwi/mongodb";
 
 type AILogSummary = {
   purpose: string;
@@ -227,6 +231,7 @@ export function FileViewScreen(props: {
   processingLogs: ProcessingLogRecord[];
   aiLogs: AIExecutionLogRecord[];
   f1Entities: FileViewEntityGroup[];
+  gpRaceResult: GpRaceResultDocument | null;
   onReprocess?: () => void;
   isReprocessing?: boolean;
 }) {
@@ -366,6 +371,80 @@ export function FileViewScreen(props: {
               {props.summary ?? "No summary yet."}
             </div>
           </section>
+
+          {props.gpRaceResult ? (
+            <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium">Grand Prix Results</div>
+                  <h2 className="mt-2 text-2xl font-semibold">
+                    {props.gpRaceResult.grandPrix}
+                  </h2>
+                  <div className="mt-1 text-sm text-[var(--muted)]">
+                    {props.gpRaceResult.circuit}
+                    {props.gpRaceResult.country
+                      ? ` · ${props.gpRaceResult.country}`
+                      : ""}
+                  </div>
+                </div>
+                {(props.gpRaceResult.dateStart || props.gpRaceResult.dateEnd) ? (
+                  <div className="rounded-full border border-[color:var(--border)] bg-[var(--surface-2)] px-3 py-1 text-xs font-medium text-[var(--muted)]">
+                    {[props.gpRaceResult.dateStart, props.gpRaceResult.dateEnd]
+                      .filter(Boolean)
+                      .join(" - ")}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-5 overflow-x-auto rounded-xl border border-[color:var(--border)]">
+                <table className="min-w-full divide-y divide-[color:var(--border)] text-sm">
+                  <thead className="bg-[var(--surface-2)] text-xs uppercase tracking-[0.16em] text-[var(--muted-2)]">
+                    <tr>
+                      <th className="px-3 py-3 text-left">P</th>
+                      <th className="px-3 py-3 text-left">Driver</th>
+                      <th className="px-3 py-3 text-left">Team</th>
+                      <th className="px-3 py-3 text-left">Car</th>
+                      <th className="px-3 py-3 text-left">Time</th>
+                      <th className="px-3 py-3 text-right">Points</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[color:var(--border)]">
+                    {props.gpRaceResult.results.map((row, idx) => {
+                      const status = String(row.timeOrGap ?? row.position ?? "");
+                      const isNonFinisher = ["DNF", "DNS", "DSQ"].includes(status);
+                      return (
+                        <tr
+                          key={`${row.driver}:${idx}`}
+                          className={
+                            isNonFinisher
+                              ? "bg-[var(--surface-2)]/50 text-[var(--muted)]"
+                              : "text-[var(--foreground)]"
+                          }
+                        >
+                          <td className="px-3 py-2 font-medium">
+                            {row.position ?? "—"}
+                          </td>
+                          <td className="px-3 py-2 font-medium">{row.driver}</td>
+                          <td className="px-3 py-2 text-[var(--muted)]">
+                            {row.team}
+                          </td>
+                          <td className="px-3 py-2 text-[var(--muted)]">
+                            {row.car ?? "—"}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {row.timeOrGap ?? "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium">
+                            {row.points ?? 0}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
 
           <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
             <div className="text-sm font-medium">Processing logs</div>

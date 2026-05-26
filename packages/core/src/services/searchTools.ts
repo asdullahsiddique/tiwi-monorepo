@@ -2,6 +2,7 @@ import type OpenAI from "openai";
 import {
   F1Repository,
   EmbeddingRepository,
+  GpResultRepository,
   getMongoDb,
   type SimilarChunk,
 } from "@tiwi/mongodb";
@@ -325,6 +326,42 @@ export const toolDefinitions: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     },
   },
 
+  // -------------------- Uploaded GP result tables --------------------
+  {
+    type: "function",
+    function: {
+      name: "query_gp_race_results",
+      description:
+        "Query exact Grand Prix result tables extracted from uploaded GP result PDFs/images. Use this for questions about a driver's finishing position, points, team, car, time/gap/status, or a team/driver's rows in an uploaded Grand Prix result table.",
+      parameters: {
+        type: "object",
+        properties: {
+          driverName: {
+            type: "string",
+            description: 'Driver name as written or partial, e.g. "Leclerc", "L. Hamilton".',
+          },
+          teamName: {
+            type: "string",
+            description: 'Team name as written or partial, e.g. "Ferrari", "McLaren".',
+          },
+          grandPrixName: {
+            type: "string",
+            description: 'Grand Prix name or partial, e.g. "Australian", "Monaco".',
+          },
+          country: {
+            type: "string",
+            description: 'Country or title header, e.g. "Australia".',
+          },
+          fileId: {
+            type: "string",
+            description: "Specific uploaded fileId if the question refers to a file.",
+          },
+          limit: { type: "integer", minimum: 1, maximum: 50 },
+        },
+      },
+    },
+  },
+
   // -------------------- Unstructured retrieval --------------------
   {
     type: "function",
@@ -380,6 +417,7 @@ export async function executeTool(
 
   const f1 = new F1Repository(ctx.db);
   const embeddings = new EmbeddingRepository(ctx.db);
+  const gpResults = new GpResultRepository(ctx.db);
   const orgId = ctx.orgId;
 
   const resolveDriverId = async (name?: unknown): Promise<string | undefined> => {
@@ -671,6 +709,22 @@ export async function executeTool(
       });
       return rows.map(projectPenalty);
     }
+    case "query_gp_race_results": {
+      const rows = await gpResults.query({
+        orgId,
+        driverName:
+          typeof args.driverName === "string" ? args.driverName : undefined,
+        teamName: typeof args.teamName === "string" ? args.teamName : undefined,
+        grandPrixName:
+          typeof args.grandPrixName === "string"
+            ? args.grandPrixName
+            : undefined,
+        country: typeof args.country === "string" ? args.country : undefined,
+        fileId: typeof args.fileId === "string" ? args.fileId : undefined,
+        limit: typeof args.limit === "number" ? args.limit : undefined,
+      });
+      return rows.map(projectGpRaceResult);
+    }
 
     // -------------------- Unstructured retrieval --------------------
     case "search_document_chunks": {
@@ -820,5 +874,27 @@ function projectPenalty(
     unit: d.unit,
     reason: d.reason,
     relatedIncidentId: d.relatedIncidentId,
+  };
+}
+
+function projectGpRaceResult(
+  d: import("@tiwi/mongodb").GpRaceResultQueryResult,
+): Record<string, unknown> {
+  return {
+    fileId: d.fileId,
+    grandPrix: d.grandPrix,
+    circuit: d.circuit,
+    country: d.country,
+    dateStart: d.dateStart,
+    dateEnd: d.dateEnd,
+    extractedAt: d.extractedAt,
+    results: d.results.map((row) => ({
+      position: row.position,
+      driver: row.driver,
+      team: row.team,
+      car: row.car,
+      timeOrGap: row.timeOrGap,
+      points: row.points,
+    })),
   };
 }

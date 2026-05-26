@@ -1,3 +1,5 @@
+import type { DocumentType } from "@tiwi/mongodb";
+
 export type ProcessFileV1Payload = {
   orgId: string;
   userId: string;
@@ -5,4 +7,5 @@ export type ProcessFileV1Payload = {
   objectKey: string;
   contentType: string;
   originalName: string;
+  documentType?: DocumentType;
 };

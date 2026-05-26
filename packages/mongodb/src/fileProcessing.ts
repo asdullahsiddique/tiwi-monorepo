@@ -1,5 +1,6 @@
 import type { Db, ModifyResult, ObjectId } from "mongodb";
 import { COLL } from "./collections";
+import type { DocumentType } from "./documentTypes";
 
 export type FileProcessingJobPayload = {
   orgId: string;
@@ -8,6 +9,7 @@ export type FileProcessingJobPayload = {
   objectKey: string;
   contentType: string;
   originalName: string;
+  documentType?: DocumentType;
 };
 
 export type FileProcessingJobDoc = FileProcessingJobPayload & {

@@ -2,6 +2,7 @@ export type FileListItem = {
   fileId: string;
   originalName: string;
   contentType: string;
+  documentType?: string;
   status: string;
   createdAt: string;
 };
@@ -110,7 +111,11 @@ export function FileManagerScreen(props: {
               >
                 <div className="col-span-6 font-medium">{f.originalName}</div>
                 <div className="col-span-3 text-[var(--muted)]">
-                  {f.contentType}
+                  {f.documentType === "grand_prix_result"
+                    ? "Grand Prix results"
+                    : f.documentType === "interview"
+                      ? "Interview"
+                      : f.contentType}
                 </div>
                 <div className="col-span-3">
                   {(() => {

@@ -12,6 +12,7 @@ import { configureLangSmith } from "@tiwi/enrichment";
 import { nanoid } from "nanoid";
 import { ZodError } from "zod";
 import { processFileV1 } from "./processors/processFileV1";
+import { processGrandPrixResultsV1 } from "./processors/processGrandPrixResultsV1";
 import type { ProcessFileV1Payload } from "./jobs/types";
 
 const POLL_MS = 60_000;
@@ -45,6 +46,7 @@ function jobToPayload(job: FileProcessingJobDoc): ProcessFileV1Payload {
     objectKey: job.objectKey,
     contentType: job.contentType,
     originalName: job.originalName,
+    documentType: job.documentType,
   };
 }
 
@@ -70,7 +72,11 @@ async function processClaimedJob(params: {
   });
 
   try {
-    await processFileV1(payload);
+    if (payload.documentType === "grand_prix_result") {
+      await processGrandPrixResultsV1(payload);
+    } else {
+      await processFileV1(payload);
+    }
 
     log("INFO", "Job completed successfully", { jobId: String(job._id), orgId, fileId });
     await logRepo.appendProcessingLog({

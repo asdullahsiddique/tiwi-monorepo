@@ -5,8 +5,10 @@ import {
   FileRepository,
   LogRepository,
   F1Repository,
+  GpResultRepository,
   type F1BaseDocument,
   type F1CollectionName,
+  type GpRaceResultDocument,
 } from "@tiwi/mongodb";
 import { createPresignedGetUrl } from "@tiwi/storage";
 
@@ -28,6 +30,7 @@ export async function getFileView(params: {
   aiLogs: Awaited<ReturnType<LogRepository["listAIExecutionLogs"]>>;
   embeddingsMeta: Awaited<ReturnType<EmbeddingRepository["getEmbeddingsMeta"]>>;
   f1Entities: FileViewEntityGroup[];
+  gpRaceResult: GpRaceResultDocument | null;
 }> {
   const db = await getMongoDb();
 
@@ -36,6 +39,7 @@ export async function getFileView(params: {
   const artifactRepo = new ArtifactRepository(db);
   const embeddingRepo = new EmbeddingRepository(db);
   const f1Repo = new F1Repository(db);
+  const gpResultRepo = new GpResultRepository(db);
 
   const file = await fileRepo.getFile({
     orgId: params.orgId,
@@ -68,6 +72,10 @@ export async function getFileView(params: {
     orgId: params.orgId,
     fileId: params.fileId,
   });
+  const gpRaceResult = await gpResultRepo.getByFileId({
+    orgId: params.orgId,
+    fileId: params.fileId,
+  });
 
   const downloadUrl = file
     ? await createPresignedGetUrl({
@@ -87,5 +95,6 @@ export async function getFileView(params: {
     aiLogs,
     embeddingsMeta,
     f1Entities,
+    gpRaceResult,
   };
 }

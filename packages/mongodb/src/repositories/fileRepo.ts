@@ -1,5 +1,6 @@
 import type { Db } from "mongodb";
 import { COLL } from "../collections";
+import type { DocumentType } from "../documentTypes";
 import { OrgRepository } from "./orgRepo";
 
 export type FileStatus =
@@ -17,6 +18,7 @@ export type FileRecord = {
   objectKey: string;
   originalName: string;
   contentType: string;
+  documentType?: DocumentType;
   sizeBytes?: number;
   status: FileStatus;
   createdAt: string;
@@ -38,6 +40,10 @@ function docToFile(doc: Record<string, unknown>): FileRecord {
     objectKey: String(doc.objectKey),
     originalName: String(doc.originalName),
     contentType: String(doc.contentType),
+    documentType:
+      doc.documentType === "interview" || doc.documentType === "grand_prix_result"
+        ? doc.documentType
+        : undefined,
     sizeBytes: doc.sizeBytes !== undefined && doc.sizeBytes !== null ? Number(doc.sizeBytes) : undefined,
     status: doc.status as FileStatus,
     createdAt: toIso(doc.createdAt),
@@ -56,6 +62,7 @@ export class FileRepository {
     objectKey: string;
     originalName: string;
     contentType: string;
+    documentType?: DocumentType;
     sizeBytes?: number;
     status: FileStatus;
   }): Promise<void> {
@@ -73,6 +80,7 @@ export class FileRepository {
           objectKey: params.objectKey,
           originalName: params.originalName,
           contentType: params.contentType,
+          documentType: params.documentType ?? null,
           sizeBytes: params.sizeBytes ?? null,
           status: params.status,
           updatedAt: now,

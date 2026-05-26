@@ -6,6 +6,7 @@ import {
   FileRepository,
   LogRepository,
   enqueueFileProcessing,
+  type DocumentType,
 } from "@tiwi/mongodb";
 
 export type RequestUploadInput = {
@@ -13,6 +14,7 @@ export type RequestUploadInput = {
   userId: string;
   originalName: string;
   contentType: string;
+  documentType?: DocumentType;
   folder?: string;
 };
 
@@ -58,6 +60,7 @@ export async function requestUpload(
     objectKey,
     originalName: input.originalName,
     contentType: input.contentType,
+    documentType: input.documentType,
     status: "UPLOADING",
   });
 
@@ -85,6 +88,7 @@ export async function commitUpload(input: {
   objectKey: string;
   originalName: string;
   contentType: string;
+  documentType?: DocumentType;
   sizeBytes?: number;
 }): Promise<{ ok: true }> {
   const db = await getMongoDb();
@@ -98,6 +102,7 @@ export async function commitUpload(input: {
     objectKey: input.objectKey,
     originalName: input.originalName,
     contentType: input.contentType,
+    documentType: input.documentType,
     sizeBytes: input.sizeBytes,
     status: "UPLOADED",
   });
@@ -114,7 +119,11 @@ export async function commitUpload(input: {
     logId: nanoid(),
     level: "INFO",
     message: "Upload committed; queued processing job",
-    metadata: { objectKey: input.objectKey, contentType: input.contentType },
+    metadata: {
+      objectKey: input.objectKey,
+      contentType: input.contentType,
+      documentType: input.documentType,
+    },
   });
 
   await enqueueFileProcessing(db, {
@@ -124,6 +133,7 @@ export async function commitUpload(input: {
     objectKey: input.objectKey,
     contentType: input.contentType,
     originalName: input.originalName,
+    documentType: input.documentType,
   });
 
   return { ok: true };
@@ -169,6 +179,7 @@ export async function reprocessFile(input: {
     objectKey: file.objectKey,
     contentType: file.contentType,
     originalName: file.originalName,
+    documentType: file.documentType,
   });
 
   return { ok: true };

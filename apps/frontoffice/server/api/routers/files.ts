@@ -2,12 +2,15 @@ import { router, procedure } from "../trpc";
 import { z } from "zod";
 import { commitUpload, getFile, getFileView, listFiles, requestUpload, reprocessFile } from "@tiwi/core";
 
+const DocumentTypeSchema = z.enum(["interview", "grand_prix_result"]);
+
 export const filesRouter = router({
   requestUpload: procedure
     .input(
       z.object({
         originalName: z.string().min(1),
         contentType: z.string().min(1),
+        documentType: DocumentTypeSchema.optional(),
         folder: z.string().min(1).optional(),
       }),
     )
@@ -17,6 +20,7 @@ export const filesRouter = router({
         userId: ctx.userId,
         originalName: input.originalName,
         contentType: input.contentType,
+        documentType: input.documentType,
         folder: input.folder,
       });
     }),
@@ -28,6 +32,7 @@ export const filesRouter = router({
         objectKey: z.string().min(1),
         originalName: z.string().min(1),
         contentType: z.string().min(1),
+        documentType: DocumentTypeSchema.optional(),
         sizeBytes: z.number().int().nonnegative().optional(),
       }),
     )
@@ -39,6 +44,7 @@ export const filesRouter = router({
         objectKey: input.objectKey,
         originalName: input.originalName,
         contentType: input.contentType,
+        documentType: input.documentType,
         sizeBytes: input.sizeBytes,
       });
     }),

@@ -146,6 +146,14 @@ const assemblyAiSecret = smSecret(
   pulumi.jsonStringify({ ASSEMBLYAI_API_KEY: assemblyAiApiKey }),
 );
 
+// Anthropic secret: container is provisioned here, but the value is populated
+// manually in AWS Secrets Manager (JSON: { "ANTHROPIC_API_KEY": "sk-ant-..." }).
+// No SecretVersion is managed by Pulumi so subsequent `pulumi up` runs won't
+// overwrite the manually-set value.
+const anthropicSecret = new aws.secretsmanager.Secret("anthropic-secret", {
+  name: "tiwi/anthropic-v1",
+});
+
 // ─── IAM ──────────────────────────────────────────────────────────────────────
 const ecsAssume = JSON.stringify({
   Version: "2012-10-17",
@@ -179,6 +187,7 @@ new aws.iam.RolePolicy("execution-sm", {
           pineconeSecret.arn,
           openAiSecret.arn,
           assemblyAiSecret.arn,
+          anthropicSecret.arn,
         ],
       },
     ],
@@ -272,6 +281,7 @@ const daemonTd = new aws.ecs.TaskDefinition("daemon-td", {
         secretRef(pineconeSecret.arn, "PINECONE_API_KEY"),
         secretRef(openAiSecret.arn, "OPENAI_API_KEY"),
         secretRef(assemblyAiSecret.arn, "ASSEMBLYAI_API_KEY"),
+        secretRef(anthropicSecret.arn, "ANTHROPIC_API_KEY"),
       ],
       logConfiguration: {
         logDriver: "awslogs",

@@ -9,7 +9,7 @@ function getIndex(env: NodeJS.ProcessEnv = process.env) {
   if (!globalForPinecone.pineconeIndex) {
     const { PINECONE_API_KEY, PINECONE_INDEX } = getPineconeEnv(env);
     const pc = new Pinecone({ apiKey: PINECONE_API_KEY });
-    globalForPinecone.pineconeIndex = pc.index(PINECONE_INDEX);
+    globalForPinecone.pineconeIndex = pc.index(PINECONE_INDEX ?? "tiwi");
   }
   return globalForPinecone.pineconeIndex;
 }
@@ -32,7 +32,9 @@ export async function pineconeQuerySimilar(params: {
   topK: number;
   orgId: string;
   env?: NodeJS.ProcessEnv;
-}): Promise<Array<{ id: string; score: number; metadata?: Record<string, unknown> }>> {
+}): Promise<
+  Array<{ id: string; score: number; metadata?: Record<string, unknown> }>
+> {
   const index = getIndex(params.env);
   const res = await index.query({
     vector: params.vector,

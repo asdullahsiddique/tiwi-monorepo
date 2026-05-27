@@ -1,4 +1,4 @@
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -48,6 +48,9 @@ const PoleOrFastestLapSchema = z.object({
   team: nullableOptionalString,
   time: nullableOptionalString,
 });
+const nullableOptionalPoleOrFastestLap = PoleOrFastestLapSchema.nullish().transform(
+  (value) => value ?? undefined,
+);
 
 const ResultEntrySchema = z.object({
   position: nullableOptionalPosition,
@@ -65,15 +68,15 @@ const GpSingleRaceResultSchema = z.object({
   country: nullableOptionalString,
   dateStart: nullableOptionalString,
   dateEnd: nullableOptionalString,
-  polePosition: PoleOrFastestLapSchema.optional(),
-  fastestLap: PoleOrFastestLapSchema.optional(),
+  polePosition: nullableOptionalPoleOrFastestLap,
+  fastestLap: nullableOptionalPoleOrFastestLap,
   results: z.array(ResultEntrySchema),
 });
 
 const RaceSchema = z.object({
   raceNumber: z.number().int().min(1),
-  polePosition: PoleOrFastestLapSchema.optional(),
-  fastestLap: PoleOrFastestLapSchema.optional(),
+  polePosition: nullableOptionalPoleOrFastestLap,
+  fastestLap: nullableOptionalPoleOrFastestLap,
   results: z.array(ResultEntrySchema),
 });
 
@@ -108,6 +111,20 @@ const RoundResultSchema = z.discriminatedUnion("type", [
 const RoundsJsonSchema = z.array(RoundResultSchema);
 
 type RoundResult = z.infer<typeof RoundResultSchema>;
+
+function buildRoundsCheckpointKey(params: {
+  orgId: string;
+  fileId: string;
+}): string {
+  return [
+    "org",
+    params.orgId,
+    "file-processing-checkpoints",
+    params.fileId,
+    "gp-results",
+    "rounds.json",
+  ].join("/");
+}
 
 function agentLog(
   level: "INFO" | "WARN" | "ERROR",
@@ -374,6 +391,43 @@ async function copyIfExists(source: string, target: string): Promise<void> {
   }
 }
 
+async function getCheckpointText(params: {
+  s3: ReturnType<typeof createS3Client>["client"];
+  bucket: string;
+  checkpointKey: string;
+}): Promise<string | null> {
+  try {
+    const checkpoint = await params.s3.send(
+      new GetObjectCommand({
+        Bucket: params.bucket,
+        Key: params.checkpointKey,
+      }),
+    );
+    const body = await streamToBuffer(checkpoint.Body);
+    return body.toString("utf8");
+  } catch (err) {
+    const code = (err as { name?: string; Code?: string }).name ?? (err as { Code?: string }).Code;
+    if (code === "NoSuchKey" || code === "NotFound") return null;
+    throw err;
+  }
+}
+
+async function putCheckpointText(params: {
+  s3: ReturnType<typeof createS3Client>["client"];
+  bucket: string;
+  checkpointKey: string;
+  text: string;
+}): Promise<void> {
+  await params.s3.send(
+    new PutObjectCommand({
+      Bucket: params.bucket,
+      Key: params.checkpointKey,
+      Body: params.text,
+      ContentType: "application/json",
+    }),
+  );
+}
+
 export async function processGrandPrixResultsV1(
   payload: ProcessFileV1Payload,
 ): Promise<void> {
@@ -412,6 +466,70 @@ export async function processGrandPrixResultsV1(
   });
 
   const { client: s3, bucket } = createS3Client();
+  const checkpointKey = buildRoundsCheckpointKey({
+    orgId: payload.orgId,
+    fileId: payload.fileId,
+  });
+
+  const checkpointText = await getCheckpointText({
+    s3,
+    bucket,
+    checkpointKey,
+  });
+  if (checkpointText) {
+    await logRepo.appendProcessingLog({
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      logId: nanoid(),
+      level: "INFO",
+      message: "Found saved Grand Prix extraction checkpoint; validating before rerunning agent",
+      metadata: { checkpointKey },
+    });
+    try {
+      const checkpointRounds = RoundsJsonSchema.parse(
+        JSON.parse(checkpointText),
+      ) as RoundResult[];
+      await gpResultRepo.replaceRoundsForFile({
+        orgId: payload.orgId,
+        fileId: payload.fileId,
+        rounds: checkpointRounds,
+      });
+      await logRepo.appendProcessingLog({
+        orgId: payload.orgId,
+        fileId: payload.fileId,
+        logId: nanoid(),
+        level: "INFO",
+        message: `Grand Prix results restored from checkpoint: ${checkpointRounds.length} round(s)`,
+        metadata: { checkpointKey, rounds: checkpointRounds.length },
+      });
+      agentLog("INFO", "Restored GP results from checkpoint", {
+        orgId: payload.orgId,
+        fileId: payload.fileId,
+        checkpointKey,
+        rounds: checkpointRounds.length,
+      });
+      return;
+    } catch (err) {
+      await logRepo.appendProcessingLog({
+        orgId: payload.orgId,
+        fileId: payload.fileId,
+        logId: nanoid(),
+        level: "WARN",
+        message: "Saved Grand Prix extraction checkpoint did not validate; rerunning agent",
+        metadata: {
+          checkpointKey,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+      agentLog("WARN", "Saved GP extraction checkpoint did not validate", {
+        orgId: payload.orgId,
+        fileId: payload.fileId,
+        checkpointKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   agentLog("INFO", "Downloading GP result PDF from object storage", {
     orgId: payload.orgId,
     fileId: payload.fileId,
@@ -503,15 +621,29 @@ export async function processGrandPrixResultsV1(
       }
     }
 
-    const raw = JSON.parse(
-      await readFile(path.join(workDir, "rounds.json"), "utf8"),
-    );
+    const roundsJsonPath = path.join(workDir, "rounds.json");
+    const roundsText = await readFile(roundsJsonPath, "utf8");
+    await putCheckpointText({
+      s3,
+      bucket,
+      checkpointKey,
+      text: roundsText,
+    });
+    agentLog("INFO", "Saved GP extraction checkpoint", {
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      checkpointKey,
+      bytes: Buffer.byteLength(roundsText),
+    });
+
+    const raw = JSON.parse(roundsText);
     const rounds = RoundsJsonSchema.parse(raw) as RoundResult[];
     agentLog("INFO", "Validated agent rounds.json", {
       orgId: payload.orgId,
       fileId: payload.fileId,
       rounds: rounds.length,
-      roundsPath: path.join(workDir, "rounds.json"),
+      roundsPath: roundsJsonPath,
+      checkpointKey,
     });
 
     await gpResultRepo.replaceRoundsForFile({

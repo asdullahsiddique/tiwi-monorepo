@@ -154,6 +154,7 @@ IMPORTANT accuracy rules:
 - If a value is illegible, use null — do not invent data
 - Output one JSON object per round (not per race). A round contains all categories and races for that venue.
 - Use null for unknown optional values; do not use em dashes or placeholder strings.
+- If pole position or fastest lap is absent for a race, use `"polePosition": null` or `"fastestLap": null`.
 - Write only a JSON array to the output path: [ {...}, {...} ]
 - Do not add notes after the JSON. If you need to record skipped pages, create ./agents/agent-<N>-notes.txt separately.
 ```
@@ -259,6 +260,10 @@ Allowed `category.name` values:
 - `COPPA SHELL AM`
 - `TROFEO PIRELLI MID`
 
+Optional fields may be `null` when absent or illegible. For `polePosition` and
+`fastestLap`, use either `null` when the whole fact is absent, or an object with
+nullable `driver`, `team`, and `time` fields when any detail is known.
+
 Final check:
 
 ```bash
@@ -274,8 +279,6 @@ PY
 ```
 
 If validation fails, fix the JSON before stopping.
-}
-```
 
 ---
 

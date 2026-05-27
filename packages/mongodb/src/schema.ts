@@ -23,12 +23,16 @@ export function ensureMongoIndexes(db: Db): Promise<void> {
     await db.collection(COLL.users).createIndex({ orgId: 1, userId: 1 }, { unique: true });
     await db.collection(COLL.files).createIndex({ orgId: 1, fileId: 1 }, { unique: true });
     await db.collection(COLL.files).createIndex({ orgId: 1, status: 1 });
+    await db.collection(COLL.files).createIndex({ extractedText: "text" }, { default_language: "none" });
     await db.collection(COLL.processingLogs).createIndex({ orgId: 1, fileId: 1, createdAt: -1 });
     await db.collection(COLL.aiExecutionLogs).createIndex({ orgId: 1, fileId: 1, createdAt: -1 });
-    await db.collection(COLL.embeddingChunks).createIndex({ orgId: 1, chunkId: 1 }, { unique: true });
-    await db.collection(COLL.embeddingChunks).createIndex({ orgId: 1, fileId: 1 });
     await db.collection(COLL.searchHistory).createIndex({ orgId: 1, userId: 1, createdAt: -1 });
     await db.collection(COLL.fileProcessingJobs).createIndex({ status: 1, createdAt: 1 });
+
+    // --- Agent query inbox (chat /agent-search) ---
+    await db.collection(COLL.agentQueryJobs).createIndex({ orgId: 1, jobId: 1 }, { unique: true });
+    await db.collection(COLL.agentQueryJobs).createIndex({ orgId: 1, conversationId: 1, createdAt: -1 });
+    await db.collection(COLL.agentQueryJobs).createIndex({ status: 1, createdAt: 1 });
 
     const gpRaceResults = db.collection(COLL.gpRaceResults);
     const gpRaceResultIndexes = await gpRaceResults.indexes();

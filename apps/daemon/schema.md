@@ -2,12 +2,13 @@
 
 ## Context
 
-Status: `apps/daemon/src/processors/processGrandPrixResultsV1.ts` now runs an
-agent-driven extraction loop against `source.pdf`. The agent follows
-`apps/daemon/SKILL.md`, writes `rounds.json`, and the daemon validates the file
-as `RoundResult[]` before replacing the file's existing round documents in
-MongoDB. `packages/mongodb/src/repositories/gpResultRepo.ts` stores one document
-per extracted round, so one uploaded almanacco PDF can produce many
+Status: `apps/daemon/src/processors/processFileV2.ts` now runs a unified
+agent-driven extraction loop against PDFs, converted Office documents, and
+images. The agent follows `apps/daemon/SKILL.md`, writes `rounds.json` and
+`text.md`, and the daemon validates `rounds.json` as `RoundResult[]` before
+replacing the file's existing round documents in MongoDB.
+`packages/mongodb/src/repositories/gpResultRepo.ts` stores one document per
+extracted round, so one uploaded almanacco PDF can produce many
 `gp_race_results` records under the same `{ orgId, fileId }`.
 
 The original schema was designed for single-class, single-race events (Formula 1 style). Ferrari Challenge has two structural differences that required the schema to grow:

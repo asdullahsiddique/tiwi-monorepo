@@ -11,9 +11,9 @@ import {
 import { configureLangSmith } from "@tiwi/enrichment";
 import { nanoid } from "nanoid";
 import { ZodError } from "zod";
-import { processFileV1 } from "./processors/processFileV1";
-import { processGrandPrixResultsV1 } from "./processors/processGrandPrixResultsV1";
+import { processFileV2 } from "./processors/processFileV2";
 import type { ProcessFileV1Payload } from "./jobs/types";
+import { startAgentQueryWorker } from "./agentQueryWorker";
 
 const POLL_MS = 60_000;
 const CONCURRENCY = 2;
@@ -72,11 +72,7 @@ async function processClaimedJob(params: {
   });
 
   try {
-    if (payload.documentType === "grand_prix_result") {
-      await processGrandPrixResultsV1(payload);
-    } else {
-      await processFileV1(payload);
-    }
+    await processFileV2(payload);
 
     log("INFO", "Job completed successfully", { jobId: String(job._id), orgId, fileId });
     await logRepo.appendProcessingLog({
@@ -133,6 +129,13 @@ async function runPollCycle(): Promise<void> {
 export async function startWorker(): Promise<void> {
   configureLangSmith();
   log("INFO", "Starting file-processing worker (MongoDB poll)", { pollMs: POLL_MS, concurrency: CONCURRENCY });
+
+  // Start the agent-query change-stream worker in parallel. It owns its own
+  // error/retry loop and never throws upward, so file processing keeps running
+  // even if the change stream is unavailable (e.g. standalone Mongo dev box).
+  startAgentQueryWorker().catch((err) => {
+    log("ERROR", "Agent query worker bootstrap failed", { error: formatErrorMessage(err) });
+  });
 
   await runPollCycle().catch((err) => {
     log("ERROR", "Poll cycle failed", { error: formatErrorMessage(err) });

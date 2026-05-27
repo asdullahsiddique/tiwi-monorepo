@@ -46,9 +46,8 @@ jobs:
           pulumi stack select tiwi/prod --create
           pulumi config set aws:region eu-central-1
           pulumi config set --secret tiwi:openAiApiKey     "${{ secrets.OPENAI_API_KEY }}"
+          pulumi config set --secret tiwi:anthropicApiKey  "${{ secrets.ANTHROPIC_API_KEY }}"
           pulumi config set --secret tiwi:mongoUri          "${{ secrets.MONGODB_URI }}"
-          pulumi config set --secret tiwi:pineconeApiKey    "${{ secrets.PINECONE_API_KEY }}"
-          pulumi config set        tiwi:pineconeIndex       "${{ secrets.PINECONE_INDEX }}"
           pulumi config set --secret tiwi:assemblyAiApiKey "${{ secrets.ASSEMBLYAI_API_KEY }}"
 
       - name: Cancel any pending Pulumi update

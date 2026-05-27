@@ -22,7 +22,7 @@ RUN pnpm install --frozen-lockfile
 FROM node:22-alpine
 
 RUN npm install -g pnpm@10.29.3
-RUN apk add --no-cache poppler-utils
+RUN apk add --no-cache libreoffice poppler-utils
 
 WORKDIR /app
 
@@ -39,6 +39,6 @@ ENV NODE_ENV=production
 
 # tsx handles TypeScript at runtime — no pre-compilation needed since all
 # workspace packages export raw TypeScript source (main: ./src/index.ts).
-# Workspace deps (mongodb, @pinecone-database/pinecone, etc.) come from deps stage.
+# Workspace deps come from deps stage.
 WORKDIR /app/apps/daemon
 CMD ["pnpm", "exec", "tsx", "src/index.ts"]

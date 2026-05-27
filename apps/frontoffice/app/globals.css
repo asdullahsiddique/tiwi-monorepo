@@ -26,3 +26,21 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
+
+/* Claude-style live activity line on /agent-search.
+   Re-mounting (via React key change) replays this animation, producing
+   the gentle cross-fade we see when the daemon pushes a new event. */
+@keyframes agent-activity-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.agent-activity-line {
+  animation: agent-activity-fade-in 280ms ease-out;
+}

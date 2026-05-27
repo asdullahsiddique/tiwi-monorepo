@@ -55,7 +55,8 @@ export default function FileViewClient(props: { fileId: string }) {
       downloadUrl={view.data?.downloadUrl ?? null}
       previewUrl={view.data?.previewUrl ?? null}
       summary={view.data?.summary ?? null}
-      embeddingsMeta={view.data?.embeddingsMeta ?? { chunkCount: 0 }}
+      extractedTextLength={view.data?.extractedTextLength ?? 0}
+      extractedTextPreview={view.data?.extractedTextPreview ?? null}
       processingLogs={view.data?.processingLogs ?? []}
       aiLogs={view.data?.aiLogs ?? []}
       f1Entities={view.data?.f1Entities ?? []}

@@ -1,7 +1,6 @@
 import {
   ArtifactRepository,
   getMongoDb,
-  EmbeddingRepository,
   FileRepository,
   LogRepository,
   F1Repository,
@@ -26,9 +25,10 @@ export async function getFileView(params: {
   downloadUrl: string | null;
   previewUrl: string | null;
   summary: string | null;
+  extractedTextLength: number;
+  extractedTextPreview: string | null;
   processingLogs: Awaited<ReturnType<LogRepository["listProcessingLogs"]>>;
   aiLogs: Awaited<ReturnType<LogRepository["listAIExecutionLogs"]>>;
-  embeddingsMeta: Awaited<ReturnType<EmbeddingRepository["getEmbeddingsMeta"]>>;
   f1Entities: FileViewEntityGroup[];
   gpRounds: GpRoundResultDocument[];
 }> {
@@ -37,7 +37,6 @@ export async function getFileView(params: {
   const fileRepo = new FileRepository(db);
   const logRepo = new LogRepository(db);
   const artifactRepo = new ArtifactRepository(db);
-  const embeddingRepo = new EmbeddingRepository(db);
   const f1Repo = new F1Repository(db);
   const gpResultRepo = new GpResultRepository(db);
 
@@ -49,7 +48,7 @@ export async function getFileView(params: {
     orgId: params.orgId,
     fileId: params.fileId,
   });
-  const embeddingsMeta = await embeddingRepo.getEmbeddingsMeta({
+  const extractedText = await artifactRepo.getFileExtractedText({
     orgId: params.orgId,
     fileId: params.fileId,
   });
@@ -91,9 +90,10 @@ export async function getFileView(params: {
     downloadUrl,
     previewUrl,
     summary,
+    extractedTextLength: extractedText?.length ?? 0,
+    extractedTextPreview: extractedText ? extractedText.slice(0, 1_000) : null,
     processingLogs,
     aiLogs,
-    embeddingsMeta,
     f1Entities,
     gpRounds,
   };

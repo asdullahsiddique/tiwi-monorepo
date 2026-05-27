@@ -4,6 +4,7 @@ export * from "./schema";
 export * from "./collections";
 export * from "./documentTypes";
 export * from "./fileProcessing";
+export * from "./agentQueries";
 export * from "./f1Documents";
 export * from "./repositories/orgRepo";
 export * from "./repositories/fileRepo";

@@ -7,11 +7,12 @@ type NavItem = { href: string; label: string; section: string };
 const nav: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", section: "Workspace" },
   { href: "/files", label: "Files", section: "Workspace" },
+  { href: "/agent-search", label: "Agent Search", section: "Agent" },
   { href: "/search", label: "Search", section: "Intelligence" },
   { href: "/prompts", label: "Prompts", section: "Intelligence" },
 ];
 
-const sections = ["Workspace", "Intelligence"] as const;
+const sections = ["Workspace", "Agent", "Intelligence"] as const;
 
 export default async function AppLayout(props: { children: React.ReactNode }) {
   const { userId, orgId } = await auth();

@@ -1,6 +1,6 @@
 # Tiwi Media Intelligence Platform (v1)
 
-MongoDB-backed media intelligence with Pinecone vector search and a polling file-processing worker.
+MongoDB-backed media intelligence with Mongo text search and a polling file-processing worker.
 
 ## Repo layout
 - `apps/frontoffice`: Next.js (UI + tRPC route handler)
@@ -11,7 +11,6 @@ MongoDB-backed media intelligence with Pinecone vector search and a polling file
 - Node.js (recommend latest LTS)
 - `pnpm` (repo uses `pnpm@10.x`)
 - Docker Desktop (or Docker Engine + Compose v2)
-- A **Pinecone** index (cosine, **1536** dimensions for `text-embedding-3-small`) matching `PINECONE_INDEX`
 
 ## Setup (local)
 From repo root:
@@ -27,8 +26,8 @@ cp .env.example apps/daemon/.env
 Fill in at least:
 - **Clerk**: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`
 - **MongoDB**: `MONGODB_URI` (default in example matches docker-compose)
-- **Pinecone**: `PINECONE_API_KEY`, `PINECONE_INDEX`
-- **OpenAI** (optional but recommended): `OPENAI_API_KEY`
+- **Anthropic**: `ANTHROPIC_API_KEY` for daemon document extraction
+- **OpenAI** (optional but recommended): `OPENAI_API_KEY` for F1 enrichment and search
 
 2) Start infra
 
@@ -70,15 +69,13 @@ pnpm dev
 6. Open the file view at `/files/:fileId` to see:
    - original asset link
    - summary
-   - embeddings meta
+   - extracted text preview
    - processing logs + AI logs
-7. Try `/search` (semantic search + citations)
+7. Try `/search` (tool-assisted search + citations)
 
 ## Troubleshooting
 ### MongoDB connection refused
 - Ensure `docker compose` is running and `MONGODB_URI` matches the compose port.
-### Pinecone errors (upsert/query)
-- Verify the index name, API key, and that the index dimension is **1536** with **cosine** similarity.
 ### MinIO init logs “connection refused”
 - This can happen briefly while MinIO is starting; the init container retries and should succeed.
 

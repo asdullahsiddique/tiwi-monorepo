@@ -387,7 +387,8 @@ export function FileViewScreen(props: {
   downloadUrl: string | null;
   previewUrl?: string | null;
   summary: string | null;
-  embeddingsMeta: { chunkCount: number; model?: string };
+  extractedTextLength: number;
+  extractedTextPreview: string | null;
   processingLogs: ProcessingLogRecord[];
   aiLogs: AIExecutionLogRecord[];
   f1Entities: FileViewEntityGroup[];
@@ -589,17 +590,21 @@ export function FileViewScreen(props: {
 
         <div className="space-y-6">
           <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
-            <div className="text-sm font-medium">Embeddings</div>
+            <div className="text-sm font-medium">Extracted text</div>
             <div className="mt-3 text-sm text-[var(--muted)]">
               <div>
-                Chunks:{" "}
+                Characters:{" "}
                 <span className="font-medium">
-                  {props.embeddingsMeta.chunkCount}
+                  {props.extractedTextLength.toLocaleString()}
                 </span>
               </div>
-              <div className="mt-1 text-[var(--muted-2)]">
-                Model: {props.embeddingsMeta.model ?? "—"}
-              </div>
+              {props.extractedTextPreview ? (
+                <div className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-[color:var(--border)] bg-[var(--surface-2)] p-3 text-xs text-[var(--muted-2)]">
+                  {props.extractedTextPreview}
+                </div>
+              ) : (
+                <div className="mt-1 text-[var(--muted-2)]">No extracted text yet.</div>
+              )}
             </div>
           </section>
 

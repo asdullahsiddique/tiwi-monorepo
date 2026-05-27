@@ -5,16 +5,14 @@ import * as awsx from "@pulumi/awsx";
 // ─── Config / Secrets ─────────────────────────────────────────────────────────
 // Set these with:
 //   pulumi config set --secret tiwi:openAiApiKey         sk-...
+//   pulumi config set --secret tiwi:anthropicApiKey      sk-ant-...
 //   pulumi config set --secret tiwi:mongoUri             mongodb+srv://...
-//   pulumi config set --secret tiwi:pineconeApiKey       ...
-//   pulumi config set        tiwi:pineconeIndex         your-index-name
 //   pulumi config set --secret tiwi:assemblyAiApiKey     ...   (optional)
 const cfg = new pulumi.Config("tiwi");
 
 const openAiApiKey = cfg.requireSecret("openAiApiKey");
+const anthropicApiKey = cfg.requireSecret("anthropicApiKey");
 const mongoUri = cfg.requireSecret("mongoUri");
-const pineconeApiKey = cfg.requireSecret("pineconeApiKey");
-const pineconeIndex = cfg.require("pineconeIndex");
 const assemblyAiApiKey = cfg.getSecret("assemblyAiApiKey") ?? pulumi.output("");
 
 // ─── AWS context ──────────────────────────────────────────────────────────────
@@ -128,12 +126,6 @@ const mongoSecret = smSecret(
   pulumi.jsonStringify({ MONGODB_URI: mongoUri }),
 );
 
-const pineconeSecret = smSecret(
-  "pinecone-secret",
-  "tiwi/pinecone-v1",
-  pulumi.jsonStringify({ PINECONE_API_KEY: pineconeApiKey }),
-);
-
 const openAiSecret = smSecret(
   "openai-secret",
   "tiwi/openai-v2",
@@ -146,13 +138,11 @@ const assemblyAiSecret = smSecret(
   pulumi.jsonStringify({ ASSEMBLYAI_API_KEY: assemblyAiApiKey }),
 );
 
-// Anthropic secret: container is provisioned here, but the value is populated
-// manually in AWS Secrets Manager (JSON: { "ANTHROPIC_API_KEY": "sk-ant-..." }).
-// No SecretVersion is managed by Pulumi so subsequent `pulumi up` runs won't
-// overwrite the manually-set value.
-const anthropicSecret = new aws.secretsmanager.Secret("anthropic-secret", {
-  name: "tiwi/anthropic-v1",
-});
+const anthropicSecret = smSecret(
+  "anthropic-secret",
+  "tiwi/anthropic-v1",
+  pulumi.jsonStringify({ ANTHROPIC_API_KEY: anthropicApiKey }),
+);
 
 // ─── IAM ──────────────────────────────────────────────────────────────────────
 const ecsAssume = JSON.stringify({
@@ -184,7 +174,6 @@ new aws.iam.RolePolicy("execution-sm", {
         Action: ["secretsmanager:GetSecretValue"],
         Resource: [
           mongoSecret.arn,
-          pineconeSecret.arn,
           openAiSecret.arn,
           assemblyAiSecret.arn,
           anthropicSecret.arn,
@@ -272,13 +261,9 @@ const daemonTd = new aws.ecs.TaskDefinition("daemon-td", {
         { name: "NODE_ENV", value: "production" },
         { name: "S3_BUCKET", value: filesBucket.id },
         { name: "S3_REGION", value: region.name ?? "eu-central-1" },
-        { name: "OPENAI_EMBEDDING_MODEL", value: "text-embedding-3-small" },
-        { name: "OPENAI_SUMMARIZATION_MODEL", value: "gpt-5-mini" },
-        { name: "PINECONE_INDEX", value: "tiwi" },
       ],
       secrets: [
         secretRef(mongoSecret.arn, "MONGODB_URI"),
-        secretRef(pineconeSecret.arn, "PINECONE_API_KEY"),
         secretRef(openAiSecret.arn, "OPENAI_API_KEY"),
         secretRef(assemblyAiSecret.arn, "ASSEMBLYAI_API_KEY"),
         secretRef(anthropicSecret.arn, "ANTHROPIC_API_KEY"),

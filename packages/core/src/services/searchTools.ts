@@ -1,7 +1,7 @@
 import type OpenAI from "openai";
 import {
+  COLL,
   F1Repository,
-  EmbeddingRepository,
   GpResultRepository,
   getMongoDb,
   type SimilarChunk,
@@ -383,7 +383,7 @@ export const toolDefinitions: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "search_document_chunks",
       description:
-        "Semantic search over indexed document chunks. Use when the question is narrative, qualitative, or asks for quotes / descriptions that won't be in structured collections. Returns top-k chunks with fileId, chunkId, score, text.",
+        "Mongo text search over extracted document text. Use when the question is narrative, qualitative, or asks for quotes / descriptions that won't be in structured collections. Returns top-k text snippets with fileId, chunkId, score, text.",
       parameters: {
         type: "object",
         properties: {
@@ -407,9 +407,7 @@ export const toolDefinitions: OpenAI.Chat.Completions.ChatCompletionTool[] = [
 export type ToolExecutionContext = {
   orgId: string;
   db: Db;
-  openai: OpenAI;
-  embeddingModel: string;
-  /** Chunks collected across all `search_document_chunks` calls (for citations). */
+  /** Mongo text-search snippets collected across all `search_document_chunks` calls. */
   collectedChunks: SimilarChunk[];
 };
 
@@ -431,7 +429,6 @@ export async function executeTool(
   }
 
   const f1 = new F1Repository(ctx.db);
-  const embeddings = new EmbeddingRepository(ctx.db);
   const gpResults = new GpResultRepository(ctx.db);
   const orgId = ctx.orgId;
 
@@ -752,15 +749,33 @@ export async function executeTool(
       const q = args.query;
       if (typeof q !== "string" || !q) return { error: "query_required" };
       const topK = typeof args.topK === "number" ? args.topK : 8;
-      const embedding = await ctx.openai.embeddings.create({
-        model: ctx.embeddingModel,
-        input: q,
-      });
-      const vector = embedding.data[0]?.embedding ?? [];
-      const chunks = await embeddings.querySimilarChunks({
-        orgId,
-        vector,
-        topK: Math.min(Math.max(topK, 1), 20),
+      const rows = await ctx.db
+        .collection(COLL.files)
+        .find(
+          { orgId, $text: { $search: q } },
+          {
+            projection: {
+              fileId: 1,
+              originalName: 1,
+              extractedText: 1,
+              score: { $meta: "textScore" },
+            },
+          },
+        )
+        .sort({ score: { $meta: "textScore" } })
+        .limit(Math.min(Math.max(topK, 1), 20))
+        .toArray();
+      const chunks: SimilarChunk[] = rows.map((row, idx) => {
+        const text = String(row.extractedText ?? "");
+        const score = typeof row.score === "number" ? row.score : 0;
+        return {
+          fileId: String(row.fileId),
+          chunkId: `${String(row.fileId)}:text`,
+          index: idx,
+          text,
+          model: "mongo-text",
+          score,
+        };
       });
       ctx.collectedChunks.push(...chunks);
       return chunks.map((c) => ({

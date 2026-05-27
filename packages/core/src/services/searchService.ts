@@ -13,7 +13,6 @@ import { executeTool, toolDefinitions } from "./searchTools";
 
 const SearchEnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-small"),
   OPENAI_SEARCH_MODEL: z.string().min(1).default("gpt-5-mini"),
   OPENAI_PRICE_INPUT_PER_1M_USD: z.coerce.number().nonnegative().default(0),
   OPENAI_PRICE_OUTPUT_PER_1M_USD: z.coerce.number().nonnegative().default(0),
@@ -124,7 +123,7 @@ export async function semanticSearch(params: {
   if (!env.OPENAI_API_KEY) {
     return {
       answer:
-        "OPENAI_API_KEY is not configured. Search requires an LLM + embeddings.",
+        "OPENAI_API_KEY is not configured. Search requires an LLM.",
       citations: [],
       chunks: [],
       relatedFiles: [],
@@ -229,8 +228,6 @@ export async function semanticSearch(params: {
         const result = await executeTool(tc.function.name, tc.function.arguments, {
           orgId: params.orgId,
           db,
-          openai,
-          embeddingModel: env.OPENAI_EMBEDDING_MODEL,
           collectedChunks,
         });
         return {

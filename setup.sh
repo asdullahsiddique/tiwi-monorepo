@@ -32,14 +32,11 @@ pulumi config set --secret tiwi:clerkSecretKey "$CLERK_SK"
 read -rsp "OPENAI_API_KEY (sk-...): " OAI_KEY; echo
 pulumi config set --secret tiwi:openAiApiKey "$OAI_KEY"
 
+read -rsp "ANTHROPIC_API_KEY (sk-ant-...): " ANTHROPIC_KEY; echo
+pulumi config set --secret tiwi:anthropicApiKey "$ANTHROPIC_KEY"
+
 read -rsp "MONGODB_URI (mongodb+srv://...): " MONGO_URI; echo
 pulumi config set --secret tiwi:mongoUri "$MONGO_URI"
-
-read -rsp "PINECONE_API_KEY: " PC_KEY; echo
-pulumi config set --secret tiwi:pineconeApiKey "$PC_KEY"
-
-read -rp "PINECONE_INDEX (plain index name): " PC_INDEX
-pulumi config set tiwi:pineconeIndex "$PC_INDEX"
 
 read -rsp "ASSEMBLYAI_API_KEY (optional — press Enter to skip): " ASSEMBLY_KEY; echo
 [ -n "$ASSEMBLY_KEY" ] && pulumi config set --secret tiwi:assemblyAiApiKey "$ASSEMBLY_KEY"

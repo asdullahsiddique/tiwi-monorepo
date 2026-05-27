@@ -332,7 +332,7 @@ export const toolDefinitions: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "query_gp_race_results",
       description:
-        "Query exact Grand Prix result tables extracted from uploaded GP result PDFs/images. Use this for questions about a driver's finishing position, points, team, car, time/gap/status, or a team/driver's rows in an uploaded result table. Multi-class results include championships, categories, and per-category races; row arrays may be trimmed to keep responses compact.",
+        "Query exact Grand Prix result tables extracted from uploaded GP result PDFs/images. Use this for questions about a driver's finishing position, points, team, car, time/gap/status, venue results, or a team/driver's rows in an uploaded result table. Accepts partial names and broad filters; call this even if the user did not specify a year. Multi-class results include championships, categories, and per-category races; row arrays may be trimmed to keep responses compact.",
       parameters: {
         type: "object",
         properties: {
@@ -346,7 +346,7 @@ export const toolDefinitions: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
           grandPrixName: {
             type: "string",
-            description: 'Grand Prix name or partial, e.g. "Australian", "Monaco".',
+            description: 'Grand Prix, venue, circuit, or country partial, e.g. "Monza", "Australian", "Japan", "Monaco".',
           },
           championship: {
             type: "string",

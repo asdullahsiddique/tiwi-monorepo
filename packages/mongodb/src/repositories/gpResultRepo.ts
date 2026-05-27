@@ -332,10 +332,15 @@ export class GpResultRepository {
 
     if (params.fileId) filter.fileId = params.fileId;
     if (params.grandPrixName) {
-      filter.grandPrix = {
+      const nameRegex = {
         $regex: escapeRegex(params.grandPrixName),
         $options: "i",
       };
+      filter.$or = [
+        { grandPrix: nameRegex },
+        { circuit: nameRegex },
+        { country: nameRegex },
+      ];
     }
     if (params.championship) {
       filter.championship = {

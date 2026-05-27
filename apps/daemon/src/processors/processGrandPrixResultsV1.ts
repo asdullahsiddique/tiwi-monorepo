@@ -151,6 +151,85 @@ function getMessageUsage(message: SDKMessage): {
   };
 }
 
+function truncateText(value: string, max = 1_000): string {
+  return value.length > max ? `${value.slice(0, max)}...` : value;
+}
+
+function stringifyParam(value: unknown, max = 1_000): string {
+  if (typeof value === "string") return truncateText(value, max);
+  try {
+    return truncateText(JSON.stringify(value), max);
+  } catch {
+    return truncateText(String(value), max);
+  }
+}
+
+function getAssistantTextPreview(content: any[]): string | undefined {
+  const text = content
+    .map((block) => {
+      if (block.type === "text") return block.text;
+      if (block.type === "thinking") return block.thinking ?? block.text;
+      return "";
+    })
+    .join("")
+    .trim();
+  return text ? truncateText(text, 1_000) : undefined;
+}
+
+function summarizeToolInput(name: string, input: Record<string, unknown>): string {
+  switch (name) {
+    case "Bash":
+      return stringifyParam(input.command ?? input.cmd ?? input);
+    case "Read":
+      return stringifyParam(input.file_path ?? input.path ?? input);
+    case "Write":
+    case "Edit":
+      return stringifyParam(input.file_path ?? input.path ?? input);
+    case "Glob":
+      return stringifyParam(input.pattern ?? input.glob_pattern ?? input);
+    case "Grep":
+      return stringifyParam(input.pattern ?? input);
+    case "Task":
+      return stringifyParam(input.description ?? input.prompt ?? input);
+    default:
+      return stringifyParam(input);
+  }
+}
+
+function getToolCalls(content: any[]): Array<{
+  id?: string;
+  name: string;
+  input: Record<string, unknown>;
+  inputSummary: string;
+}> {
+  return content
+    .filter((block) => block.type === "tool_use" && typeof block.name === "string")
+    .map((block) => {
+      const input =
+        block.input && typeof block.input === "object"
+          ? (block.input as Record<string, unknown>)
+          : {};
+      return {
+        id: block.id,
+        name: block.name,
+        input,
+        inputSummary: summarizeToolInput(block.name, input),
+      };
+    });
+}
+
+function formatToolCallMessage(
+  toolCalls: Array<{ name: string; inputSummary: string }>,
+): string {
+  if (toolCalls.length === 1) {
+    const [toolCall] = toolCalls;
+    return `Claude agent tool call: ${toolCall.name} — ${toolCall.inputSummary}`;
+  }
+  return `Claude agent tool calls: ${toolCalls
+    .map((toolCall) => `${toolCall.name} — ${toolCall.inputSummary}`)
+    .join("; ")}`;
+}
+
 function summarizeAgentMessage(message: SDKMessage): {
   level: "INFO" | "WARN" | "ERROR";
   message: string;
@@ -158,25 +237,24 @@ function summarizeAgentMessage(message: SDKMessage): {
 } | null {
   if (message.type === "assistant") {
     const content = (message.message.content ?? []) as any[];
-    const text = content
-      .map((block) => (block.type === "text" ? block.text : ""))
-      .join("")
-      .trim();
-    const toolNames = content
-      .filter((block) => block.type === "tool_use" && typeof block.name === "string")
-      .map((block) => block.name);
+    const textPreview = getAssistantTextPreview(content);
+    const toolCalls = getToolCalls(content);
 
-    if (toolNames.length > 0) {
+    if (toolCalls.length > 0) {
       return {
         level: "INFO",
-        message: `Claude agent requested tool(s): ${toolNames.join(", ")}`,
-        metadata: { type: message.type, tools: toolNames },
+        message: formatToolCallMessage(toolCalls),
+        metadata: {
+          type: message.type,
+          textPreview,
+          toolCalls,
+        },
       };
     }
-    if (text) {
+    if (textPreview) {
       return {
         level: "INFO",
-        message: text.slice(0, 500),
+        message: textPreview.slice(0, 500),
         metadata: { type: message.type },
       };
     }
@@ -246,21 +324,13 @@ function logAgentMessageToStdout(params: {
 
   if (message.type === "assistant") {
     const content = (message.message.content ?? []) as any[];
-    const toolCalls = content
-      .filter((block) => block.type === "tool_use")
-      .map((block) => ({
-        name: block.name,
-        id: block.id,
-      }));
-    const text = content
-      .map((block) => (block.type === "text" ? block.text : ""))
-      .join("")
-      .trim();
+    const toolCalls = getToolCalls(content);
+    const textPreview = getAssistantTextPreview(content);
 
     agentLog("INFO", "Claude agent assistant message", {
       ...base,
       toolCalls,
-      textPreview: text ? text.slice(0, 500) : undefined,
+      textPreview,
     });
     return;
   }

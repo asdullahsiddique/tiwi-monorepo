@@ -3,7 +3,9 @@
 import { useMemo, useState } from "react";
 import type {
   AIExecutionLogRecord,
-  GpRaceResultDocument,
+  GpRoundResultDocument,
+  PoleOrFastestLap,
+  RaceResultEntry,
   ProcessingLogRecord,
 } from "@tiwi/mongodb";
 
@@ -220,6 +222,164 @@ function getCollectionLabel(collection: string) {
   return COLLECTION_LABELS[collection] ?? collection;
 }
 
+function formatPoleOrFastestLap(value: PoleOrFastestLap | undefined): string {
+  if (!value) return "—";
+  const parts = [
+    value.driver,
+    value.team ? `(${value.team})` : undefined,
+    value.time,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" ") : "—";
+}
+
+function ResultsTable(props: {
+  rows: RaceResultEntry[];
+  showCarAndPoints?: boolean;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-[color:var(--border)]">
+      <table className="min-w-full divide-y divide-[color:var(--border)] text-sm">
+        <thead className="bg-[var(--surface-2)] text-xs uppercase tracking-[0.16em] text-[var(--muted-2)]">
+          <tr>
+            <th className="px-3 py-3 text-left">P</th>
+            <th className="px-3 py-3 text-left">Driver</th>
+            <th className="px-3 py-3 text-left">Team</th>
+            {props.showCarAndPoints ? (
+              <th className="px-3 py-3 text-left">Car</th>
+            ) : null}
+            <th className="px-3 py-3 text-left">Time</th>
+            {props.showCarAndPoints ? (
+              <th className="px-3 py-3 text-right">Points</th>
+            ) : null}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[color:var(--border)]">
+          {props.rows.map((row, idx) => {
+            const status = String(row.timeOrGap ?? row.position ?? "");
+            const isNonFinisher = ["DNF", "DNS", "DSQ"].includes(status);
+            return (
+              <tr
+                key={`${row.driver}:${idx}`}
+                className={
+                  isNonFinisher
+                    ? "bg-[var(--surface-2)]/50 text-[var(--muted)]"
+                    : "text-[var(--foreground)]"
+                }
+              >
+                <td className="px-3 py-2 font-medium">{row.position ?? "—"}</td>
+                <td className="px-3 py-2 font-medium">{row.driver}</td>
+                <td className="px-3 py-2 text-[var(--muted)]">
+                  {row.team ?? "—"}
+                </td>
+                {props.showCarAndPoints ? (
+                  <td className="px-3 py-2 text-[var(--muted)]">
+                    {row.car ?? "—"}
+                  </td>
+                ) : null}
+                <td className="px-3 py-2 font-mono text-xs">
+                  {row.timeOrGap ?? "—"}
+                </td>
+                {props.showCarAndPoints ? (
+                  <td className="px-3 py-2 text-right font-medium">
+                    {row.points ?? "—"}
+                  </td>
+                ) : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RaceMeta(props: {
+  polePosition?: PoleOrFastestLap;
+  fastestLap?: PoleOrFastestLap;
+}) {
+  return (
+    <div className="grid gap-2 rounded-xl border border-[color:var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--muted)] sm:grid-cols-2">
+      <div>
+        <span className="font-medium text-[var(--foreground)]">Pole:</span>{" "}
+        {formatPoleOrFastestLap(props.polePosition)}
+      </div>
+      <div>
+        <span className="font-medium text-[var(--foreground)]">Fastest lap:</span>{" "}
+        {formatPoleOrFastestLap(props.fastestLap)}
+      </div>
+    </div>
+  );
+}
+
+function RoundCard(props: { round: GpRoundResultDocument }) {
+  const round = props.round;
+  const title =
+    round.type === "multi-class"
+      ? `${round.championship} — ${round.grandPrix}`
+      : round.grandPrix;
+  const roundLabel =
+    round.type === "multi-class" && (round.round || round.totalRounds)
+      ? `Round ${round.round ?? "?"}/${round.totalRounds ?? "?"}`
+      : null;
+
+  return (
+    <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-sm font-medium">Grand Prix Results</div>
+          <h2 className="mt-2 text-2xl font-semibold">{title}</h2>
+          <div className="mt-1 text-sm text-[var(--muted)]">
+            {round.circuit}
+            {round.country ? ` · ${round.country}` : ""}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {roundLabel ? (
+            <div className="rounded-full border border-[color:var(--border)] bg-[var(--surface-2)] px-3 py-1 text-xs font-medium text-[var(--muted)]">
+              {roundLabel}
+            </div>
+          ) : null}
+          {round.dateStart || round.dateEnd ? (
+            <div className="rounded-full border border-[color:var(--border)] bg-[var(--surface-2)] px-3 py-1 text-xs font-medium text-[var(--muted)]">
+              {[round.dateStart, round.dateEnd].filter(Boolean).join(" - ")}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {round.type === "single" ? (
+        <div className="mt-5 space-y-3">
+          <RaceMeta
+            polePosition={round.polePosition}
+            fastestLap={round.fastestLap}
+          />
+          <ResultsTable rows={round.results} showCarAndPoints />
+        </div>
+      ) : (
+        <div className="mt-5 space-y-6">
+          {round.categories.map((category) => (
+            <div key={category.name} className="space-y-4">
+              <h3 className="text-sm font-semibold">{category.name}</h3>
+              {category.races.map((race) => (
+                <div key={race.raceNumber} className="space-y-3">
+                  <div className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--muted-2)]">
+                    Race {race.raceNumber}
+                  </div>
+                  <RaceMeta
+                    polePosition={race.polePosition}
+                    fastestLap={race.fastestLap}
+                  />
+                  <ResultsTable rows={race.results} />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function FileViewScreen(props: {
   title: string;
   status: string;
@@ -231,7 +391,7 @@ export function FileViewScreen(props: {
   processingLogs: ProcessingLogRecord[];
   aiLogs: AIExecutionLogRecord[];
   f1Entities: FileViewEntityGroup[];
-  gpRaceResult: GpRaceResultDocument | null;
+  gpRounds: GpRoundResultDocument[];
   onReprocess?: () => void;
   isReprocessing?: boolean;
 }) {
@@ -372,79 +532,14 @@ export function FileViewScreen(props: {
             </div>
           </section>
 
-          {props.gpRaceResult ? (
-            <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <div className="text-sm font-medium">Grand Prix Results</div>
-                  <h2 className="mt-2 text-2xl font-semibold">
-                    {props.gpRaceResult.grandPrix}
-                  </h2>
-                  <div className="mt-1 text-sm text-[var(--muted)]">
-                    {props.gpRaceResult.circuit}
-                    {props.gpRaceResult.country
-                      ? ` · ${props.gpRaceResult.country}`
-                      : ""}
-                  </div>
-                </div>
-                {(props.gpRaceResult.dateStart || props.gpRaceResult.dateEnd) ? (
-                  <div className="rounded-full border border-[color:var(--border)] bg-[var(--surface-2)] px-3 py-1 text-xs font-medium text-[var(--muted)]">
-                    {[props.gpRaceResult.dateStart, props.gpRaceResult.dateEnd]
-                      .filter(Boolean)
-                      .join(" - ")}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="mt-5 overflow-x-auto rounded-xl border border-[color:var(--border)]">
-                <table className="min-w-full divide-y divide-[color:var(--border)] text-sm">
-                  <thead className="bg-[var(--surface-2)] text-xs uppercase tracking-[0.16em] text-[var(--muted-2)]">
-                    <tr>
-                      <th className="px-3 py-3 text-left">P</th>
-                      <th className="px-3 py-3 text-left">Driver</th>
-                      <th className="px-3 py-3 text-left">Team</th>
-                      <th className="px-3 py-3 text-left">Car</th>
-                      <th className="px-3 py-3 text-left">Time</th>
-                      <th className="px-3 py-3 text-right">Points</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[color:var(--border)]">
-                    {props.gpRaceResult.results.map((row, idx) => {
-                      const status = String(row.timeOrGap ?? row.position ?? "");
-                      const isNonFinisher = ["DNF", "DNS", "DSQ"].includes(status);
-                      return (
-                        <tr
-                          key={`${row.driver}:${idx}`}
-                          className={
-                            isNonFinisher
-                              ? "bg-[var(--surface-2)]/50 text-[var(--muted)]"
-                              : "text-[var(--foreground)]"
-                          }
-                        >
-                          <td className="px-3 py-2 font-medium">
-                            {row.position ?? "—"}
-                          </td>
-                          <td className="px-3 py-2 font-medium">{row.driver}</td>
-                          <td className="px-3 py-2 text-[var(--muted)]">
-                            {row.team}
-                          </td>
-                          <td className="px-3 py-2 text-[var(--muted)]">
-                            {row.car ?? "—"}
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {row.timeOrGap ?? "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right font-medium">
-                            {row.points ?? 0}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ) : null}
+          {props.gpRounds.length > 0
+            ? props.gpRounds.map((round, idx) => (
+                <RoundCard
+                  key={`${round.fileId}:${round.grandPrix}:${round.type}:${idx}`}
+                  round={round}
+                />
+              ))
+            : null}
 
           <section className="rounded-2xl border border-[color:var(--border)] bg-[var(--surface)] p-6 backdrop-blur">
             <div className="text-sm font-medium">Processing logs</div>

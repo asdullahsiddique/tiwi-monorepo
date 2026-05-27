@@ -332,7 +332,7 @@ export const toolDefinitions: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "query_gp_race_results",
       description:
-        "Query exact Grand Prix result tables extracted from uploaded GP result PDFs/images. Use this for questions about a driver's finishing position, points, team, car, time/gap/status, or a team/driver's rows in an uploaded Grand Prix result table.",
+        "Query exact Grand Prix result tables extracted from uploaded GP result PDFs/images. Use this for questions about a driver's finishing position, points, team, car, time/gap/status, or a team/driver's rows in an uploaded result table. Multi-class results include championships, categories, and per-category races; row arrays may be trimmed to keep responses compact.",
       parameters: {
         type: "object",
         properties: {
@@ -347,6 +347,21 @@ export const toolDefinitions: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           grandPrixName: {
             type: "string",
             description: 'Grand Prix name or partial, e.g. "Australian", "Monaco".',
+          },
+          championship: {
+            type: "string",
+            description: 'Championship or series name, e.g. "Ferrari Challenge Europe".',
+          },
+          categoryName: {
+            type: "string",
+            enum: [
+              "TROFEO PIRELLI",
+              "TROFEO PIRELLI AM",
+              "COPPA SHELL",
+              "COPPA SHELL AM",
+              "TROFEO PIRELLI MID",
+            ],
+            description: "Ferrari Challenge category/class to filter by.",
           },
           country: {
             type: "string",
@@ -719,6 +734,12 @@ export async function executeTool(
           typeof args.grandPrixName === "string"
             ? args.grandPrixName
             : undefined,
+        championship:
+          typeof args.championship === "string" ? args.championship : undefined,
+        categoryName:
+          typeof args.categoryName === "string"
+            ? (args.categoryName as import("@tiwi/mongodb").CategoryResult["name"])
+            : undefined,
         country: typeof args.country === "string" ? args.country : undefined,
         fileId: typeof args.fileId === "string" ? args.fileId : undefined,
         limit: typeof args.limit === "number" ? args.limit : undefined,
@@ -880,7 +901,18 @@ function projectPenalty(
 function projectGpRaceResult(
   d: import("@tiwi/mongodb").GpRaceResultQueryResult,
 ): Record<string, unknown> {
-  return {
+  const projectRows = (rows: import("@tiwi/mongodb").RaceResultEntry[]) =>
+    rows.slice(0, 25).map((row) => ({
+      position: row.position,
+      driver: row.driver,
+      team: row.team,
+      car: row.car,
+      timeOrGap: row.timeOrGap,
+      points: row.points,
+    }));
+
+  const base = {
+    type: d.type,
     fileId: d.fileId,
     grandPrix: d.grandPrix,
     circuit: d.circuit,
@@ -888,13 +920,30 @@ function projectGpRaceResult(
     dateStart: d.dateStart,
     dateEnd: d.dateEnd,
     extractedAt: d.extractedAt,
-    results: d.results.map((row) => ({
-      position: row.position,
-      driver: row.driver,
-      team: row.team,
-      car: row.car,
-      timeOrGap: row.timeOrGap,
-      points: row.points,
+  };
+
+  if (d.type === "single") {
+    return {
+      ...base,
+      polePosition: d.polePosition,
+      fastestLap: d.fastestLap,
+      results: projectRows(d.results),
+    };
+  }
+
+  return {
+    ...base,
+    championship: d.championship,
+    round: d.round,
+    totalRounds: d.totalRounds,
+    categories: d.categories.map((category) => ({
+      name: category.name,
+      races: category.races.map((race) => ({
+        raceNumber: race.raceNumber,
+        polePosition: race.polePosition,
+        fastestLap: race.fastestLap,
+        results: projectRows(race.results),
+      })),
     })),
   };
 }

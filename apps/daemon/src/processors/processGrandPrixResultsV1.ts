@@ -1,7 +1,11 @@
 import { GetObjectCommand } from "@aws-sdk/client-s3";
-import Anthropic from "@anthropic-ai/sdk";
+import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   FileRepository,
   getMongoDb,
@@ -9,12 +13,21 @@ import {
   LogRepository,
 } from "@tiwi/mongodb";
 import { createS3Client } from "@tiwi/storage";
+import { estimateAnthropicCostUsd } from "../anthropicPricing";
 import type { ProcessFileV1Payload } from "../jobs/types";
 
-const CLAUDE_GP_RESULTS_MODEL = "claude-opus-4-7";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DAEMON_ROOT = path.resolve(__dirname, "../..");
 
 const GpResultsEnvSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1),
+  CLAUDE_AGENT_MODEL: z.string().min(1).default("claude-opus-4-7"),
+  CLAUDE_AGENT_MAX_TURNS: z.coerce.number().int().positive().default(200),
+  ANTHROPIC_CLAUDE_OPUS_INPUT_USD_PER_1M: z.coerce.number().nonnegative().default(15),
+  ANTHROPIC_CLAUDE_OPUS_OUTPUT_USD_PER_1M: z.coerce.number().nonnegative().default(75),
+  ANTHROPIC_CLAUDE_SONNET_INPUT_USD_PER_1M: z.coerce.number().nonnegative().default(3),
+  ANTHROPIC_CLAUDE_SONNET_OUTPUT_USD_PER_1M: z.coerce.number().nonnegative().default(15),
 });
 
 const nullableOptionalString = z
@@ -30,23 +43,87 @@ const nullableOptionalPosition = z
   .nullish()
   .transform((value) => value ?? undefined);
 
-const GpResultExtractionSchema = z.object({
+const PoleOrFastestLapSchema = z.object({
+  driver: nullableOptionalString,
+  team: nullableOptionalString,
+  time: nullableOptionalString,
+});
+
+const ResultEntrySchema = z.object({
+  position: nullableOptionalPosition,
+  driver: z.string().min(1),
+  team: nullableOptionalString,
+  car: nullableOptionalString,
+  timeOrGap: nullableOptionalString,
+  points: nullableOptionalNumber,
+});
+
+const GpSingleRaceResultSchema = z.object({
+  type: z.literal("single"),
   grandPrix: z.string().min(1),
   circuit: z.string().min(1),
   country: nullableOptionalString,
   dateStart: nullableOptionalString,
   dateEnd: nullableOptionalString,
-  results: z.array(
-    z.object({
-      position: nullableOptionalPosition,
-      driver: z.string().min(1),
-      team: z.string().min(1),
-      car: nullableOptionalString,
-      timeOrGap: nullableOptionalString,
-      points: nullableOptionalNumber,
-    }),
-  ),
+  polePosition: PoleOrFastestLapSchema.optional(),
+  fastestLap: PoleOrFastestLapSchema.optional(),
+  results: z.array(ResultEntrySchema),
 });
+
+const RaceSchema = z.object({
+  raceNumber: z.number().int().min(1),
+  polePosition: PoleOrFastestLapSchema.optional(),
+  fastestLap: PoleOrFastestLapSchema.optional(),
+  results: z.array(ResultEntrySchema),
+});
+
+const CategorySchema = z.object({
+  name: z.enum([
+    "TROFEO PIRELLI",
+    "TROFEO PIRELLI AM",
+    "COPPA SHELL",
+    "COPPA SHELL AM",
+    "TROFEO PIRELLI MID",
+  ]),
+  races: z.array(RaceSchema),
+});
+
+const MultiClassRoundResultSchema = z.object({
+  type: z.literal("multi-class"),
+  championship: z.string().min(1),
+  grandPrix: z.string().min(1),
+  circuit: z.string().min(1),
+  country: nullableOptionalString,
+  dateStart: nullableOptionalString,
+  dateEnd: nullableOptionalString,
+  round: nullableOptionalNumber,
+  totalRounds: nullableOptionalNumber,
+  categories: z.array(CategorySchema),
+});
+
+const RoundResultSchema = z.discriminatedUnion("type", [
+  GpSingleRaceResultSchema,
+  MultiClassRoundResultSchema,
+]);
+const RoundsJsonSchema = z.array(RoundResultSchema);
+
+type RoundResult = z.infer<typeof RoundResultSchema>;
+
+function agentLog(
+  level: "INFO" | "WARN" | "ERROR",
+  message: string,
+  meta?: Record<string, unknown>,
+): void {
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    level,
+    message,
+    scope: "gp_results_agent",
+    ...meta,
+  });
+  if (level === "ERROR") console.error(line);
+  else console.log(line);
+}
 
 async function streamToBuffer(stream: any): Promise<Buffer> {
   if (Buffer.isBuffer(stream)) return stream;
@@ -55,52 +132,176 @@ async function streamToBuffer(stream: any): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function responseText(response: Anthropic.Messages.Message): string {
-  return response.content
-    .map((block) => (block.type === "text" ? block.text : ""))
-    .join("")
-    .trim();
-}
-
-function parseJsonObject(text: string): unknown {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced?.[1] ?? text;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error("Claude response did not contain a JSON object");
-  }
-  return JSON.parse(candidate.slice(start, end + 1));
-}
-
-function buildAnthropicFileBlock(params: {
-  contentType: string;
-  body: Buffer;
-}): Record<string, unknown> {
-  const data = params.body.toString("base64");
-  if (params.contentType.startsWith("image/")) {
+function getMessageUsage(message: SDKMessage): {
+  inputTokens: number;
+  outputTokens: number;
+} {
+  if (message.type !== "result") {
+    const usage = "usage" in message ? (message.usage as any) : undefined;
     return {
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: params.contentType,
-        data,
+      inputTokens: usage?.input_tokens ?? usage?.inputTokens ?? 0,
+      outputTokens: usage?.output_tokens ?? usage?.outputTokens ?? 0,
+    };
+  }
+
+  const usage = message.usage as any;
+  return {
+    inputTokens: usage.input_tokens ?? usage.inputTokens ?? 0,
+    outputTokens: usage.output_tokens ?? usage.outputTokens ?? 0,
+  };
+}
+
+function summarizeAgentMessage(message: SDKMessage): {
+  level: "INFO" | "WARN" | "ERROR";
+  message: string;
+  metadata?: Record<string, unknown>;
+} | null {
+  if (message.type === "assistant") {
+    const content = (message.message.content ?? []) as any[];
+    const text = content
+      .map((block) => (block.type === "text" ? block.text : ""))
+      .join("")
+      .trim();
+    const toolNames = content
+      .filter((block) => block.type === "tool_use" && typeof block.name === "string")
+      .map((block) => block.name);
+
+    if (toolNames.length > 0) {
+      return {
+        level: "INFO",
+        message: `Claude agent requested tool(s): ${toolNames.join(", ")}`,
+        metadata: { type: message.type, tools: toolNames },
+      };
+    }
+    if (text) {
+      return {
+        level: "INFO",
+        message: text.slice(0, 500),
+        metadata: { type: message.type },
+      };
+    }
+    return null;
+  }
+
+  if (message.type === "result") {
+    return {
+      level: message.subtype === "success" ? "INFO" : "ERROR",
+      message:
+        message.subtype === "success"
+          ? "Claude agent extraction loop completed"
+          : `Claude agent extraction loop failed: ${message.subtype}`,
+      metadata: {
+        type: message.type,
+        subtype: message.subtype,
+        numTurns: message.num_turns,
+        stopReason: message.stop_reason,
+        errors: "errors" in message ? message.errors : undefined,
       },
     };
   }
-  if (params.contentType === "application/pdf") {
-    return {
-      type: "document",
-      source: {
-        type: "base64",
-        media_type: "application/pdf",
-        data,
-      },
-    };
+
+  if (message.type === "system") {
+    const subtype = (message as any).subtype;
+    if (subtype === "api_retry") {
+      return {
+        level: "WARN",
+        message: "Claude agent API retry",
+        metadata: {
+          subtype,
+          attempt: (message as any).attempt,
+          maxRetries: (message as any).max_retries,
+          retryDelayMs: (message as any).retry_delay_ms,
+        },
+      };
+    }
+    if (subtype === "task_notification") {
+      return {
+        level: "INFO",
+        message: `Claude agent task ${(message as any).status ?? "updated"}`,
+        metadata: message as unknown as Record<string, unknown>,
+      };
+    }
   }
-  throw new Error(
-    `Grand Prix result extraction supports images and PDFs only, got ${params.contentType}`,
-  );
+
+  return null;
+}
+
+function logAgentMessageToStdout(params: {
+  orgId: string;
+  fileId: string;
+  message: SDKMessage;
+  usage: { inputTokens: number; outputTokens: number };
+  accumulatedUsage: { inputTokens: number; outputTokens: number };
+}): void {
+  const { message, usage, accumulatedUsage } = params;
+  const base = {
+    orgId: params.orgId,
+    fileId: params.fileId,
+    sdkMessageType: message.type,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    totalInputTokens: accumulatedUsage.inputTokens,
+    totalOutputTokens: accumulatedUsage.outputTokens,
+  };
+
+  if (message.type === "assistant") {
+    const content = (message.message.content ?? []) as any[];
+    const toolCalls = content
+      .filter((block) => block.type === "tool_use")
+      .map((block) => ({
+        name: block.name,
+        id: block.id,
+      }));
+    const text = content
+      .map((block) => (block.type === "text" ? block.text : ""))
+      .join("")
+      .trim();
+
+    agentLog("INFO", "Claude agent assistant message", {
+      ...base,
+      toolCalls,
+      textPreview: text ? text.slice(0, 500) : undefined,
+    });
+    return;
+  }
+
+  if (message.type === "result") {
+    agentLog(message.subtype === "success" ? "INFO" : "ERROR", "Claude agent result", {
+      ...base,
+      subtype: message.subtype,
+      numTurns: message.num_turns,
+      stopReason: message.stop_reason,
+      totalCostUsd: message.total_cost_usd,
+      errors: "errors" in message ? message.errors : undefined,
+    });
+    return;
+  }
+
+  if (message.type === "system") {
+    agentLog("INFO", "Claude agent system event", {
+      ...base,
+      subtype: (message as any).subtype,
+      status: (message as any).status,
+      summary: (message as any).summary,
+      outputFile: (message as any).output_file,
+    });
+    return;
+  }
+
+  agentLog("INFO", "Claude agent SDK event", {
+    ...base,
+    subtype: (message as any).subtype,
+  });
+}
+
+async function copyIfExists(source: string, target: string): Promise<void> {
+  try {
+    await cp(source, target);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
+  }
 }
 
 export async function processGrandPrixResultsV1(
@@ -120,92 +321,185 @@ export async function processGrandPrixResultsV1(
   if (!file) {
     throw new Error(`File not found: ${payload.fileId}`);
   }
+  if (file.contentType !== "application/pdf") {
+    throw new Error(
+      `Grand Prix agent extraction supports PDFs only, got ${file.contentType}`,
+    );
+  }
 
   await logRepo.appendProcessingLog({
     orgId: payload.orgId,
     fileId: payload.fileId,
     logId: nanoid(),
     level: "INFO",
-    message: "Starting Grand Prix results extraction with Claude",
+    message: "Starting Grand Prix results extraction with Claude agent",
     metadata: {
       contentType: file.contentType,
-      model: CLAUDE_GP_RESULTS_MODEL,
+      model: env.CLAUDE_AGENT_MODEL,
       documentType: payload.documentType,
+      maxTurns: env.CLAUDE_AGENT_MAX_TURNS,
     },
   });
 
   const { client: s3, bucket } = createS3Client();
+  agentLog("INFO", "Downloading GP result PDF from object storage", {
+    orgId: payload.orgId,
+    fileId: payload.fileId,
+    objectKey: file.objectKey,
+    bucket,
+  });
   const obj = await s3.send(
     new GetObjectCommand({ Bucket: bucket, Key: file.objectKey }),
   );
   const body = await streamToBuffer(obj.Body);
-
-  const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const stream = anthropic.messages.stream({
-    model: CLAUDE_GP_RESULTS_MODEL,
-    max_tokens: 4096,
-    system:
-      "You extract Formula 1 Grand Prix race-result tables from uploaded PDFs or images. Return only strict JSON. Numeric points must be JSON numbers. Preserve visible names and table values exactly when possible.",
-    messages: [
-      {
-        role: "user",
-        content: [
-          buildAnthropicFileBlock({
-            contentType: file.contentType,
-            body,
-          }),
-          {
-            type: "text",
-            text: 'Extract the Grand Prix result table. The visual format usually has a country/title header, date range, location/circuit, and rows with P, drivers, teams, cars/power unit, time, and points.\n\nReturn JSON with this exact shape:\n{\n  "grandPrix": "Australian Grand Prix",\n  "circuit": "Albert Park Circuit",\n  "country": "Australia",\n  "dateStart": "14.03",\n  "dateEnd": "16.03",\n  "results": [\n    { "position": 1, "driver": "L. Norris", "team": "McLaren", "car": "MCL39-Mercedes", "timeOrGap": "1:42:06.304", "points": 25 }\n  ]\n}\n\nInclude classified finishers, DNF, and DNS rows if visible. Use timeOrGap for full race time, gaps, DNF, DNS, or other status text.',
-          },
-        ] as any,
-      },
-    ],
+  agentLog("INFO", "Downloaded GP result PDF", {
+    orgId: payload.orgId,
+    fileId: payload.fileId,
+    bytes: body.byteLength,
   });
-  const response = await stream.finalMessage();
 
-  const parsed = GpResultExtractionSchema.parse(
-    parseJsonObject(responseText(response)),
+  const workDir = await mkdtemp(
+    path.join(os.tmpdir(), `tiwi-gp-${payload.fileId}-`),
   );
 
-  await gpResultRepo.upsertForFile({
-    orgId: payload.orgId,
-    fileId: payload.fileId,
-    grandPrix: parsed.grandPrix,
-    circuit: parsed.circuit,
-    country: parsed.country,
-    dateStart: parsed.dateStart,
-    dateEnd: parsed.dateEnd,
-    results: parsed.results,
-  });
+  let inputTokens = 0;
+  let outputTokens = 0;
 
-  await logRepo.appendAIExecutionLog({
-    orgId: payload.orgId,
-    fileId: payload.fileId,
-    logId: nanoid(),
-    model: CLAUDE_GP_RESULTS_MODEL,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-    totalTokens: response.usage.input_tokens + response.usage.output_tokens,
-    costUsd: 0,
-    purpose: "gp_results:extract",
-    metadata: {
-      resultRows: parsed.results.length,
-      grandPrix: parsed.grandPrix,
-      circuit: parsed.circuit,
-    },
-  });
+  try {
+    await writeFile(path.join(workDir, "source.pdf"), body);
+    await cp(path.join(DAEMON_ROOT, "SKILL.md"), path.join(workDir, "SKILL.md"));
+    await copyIfExists(
+      path.join(DAEMON_ROOT, "schema.md"),
+      path.join(workDir, "schema.md"),
+    );
+    agentLog("INFO", "Prepared Claude agent working directory", {
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      workDir,
+      sourcePdf: path.join(workDir, "source.pdf"),
+      skill: path.join(workDir, "SKILL.md"),
+    });
 
-  await logRepo.appendProcessingLog({
-    orgId: payload.orgId,
-    fileId: payload.fileId,
-    logId: nanoid(),
-    level: "INFO",
-    message: `Grand Prix results extraction complete: ${parsed.results.length} row(s)`,
-    metadata: {
-      grandPrix: parsed.grandPrix,
-      circuit: parsed.circuit,
-      country: parsed.country,
-    },
-  });
+    const prompt =
+      "Follow ./SKILL.md exactly. The source PDF is ./source.pdf. When finished, write ./rounds.json containing a JSON array of RoundResult objects. Do not stop until ./rounds.json exists and validates as JSON.";
+
+    agentLog("INFO", "Starting Claude agent extraction loop", {
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      model: env.CLAUDE_AGENT_MODEL,
+      maxTurns: env.CLAUDE_AGENT_MAX_TURNS,
+      allowedTools: ["Read", "Glob", "Grep", "Bash", "Write", "Edit", "Task"],
+    });
+
+    for await (const message of query({
+      prompt,
+      options: {
+        cwd: workDir,
+        model: env.CLAUDE_AGENT_MODEL,
+        maxTurns: env.CLAUDE_AGENT_MAX_TURNS,
+        permissionMode: "acceptEdits",
+        allowedTools: ["Read", "Glob", "Grep", "Bash", "Write", "Edit", "Task"],
+      },
+    })) {
+      const usage = getMessageUsage(message);
+      inputTokens += usage.inputTokens;
+      outputTokens += usage.outputTokens;
+      logAgentMessageToStdout({
+        orgId: payload.orgId,
+        fileId: payload.fileId,
+        message,
+        usage,
+        accumulatedUsage: { inputTokens, outputTokens },
+      });
+
+      const summary = summarizeAgentMessage(message);
+      if (summary) {
+        await logRepo.appendProcessingLog({
+          orgId: payload.orgId,
+          fileId: payload.fileId,
+          logId: nanoid(),
+          level: summary.level,
+          message: summary.message,
+          metadata: summary.metadata,
+        });
+      }
+
+      if (message.type === "result" && message.subtype !== "success") {
+        const errors =
+          "errors" in message && message.errors.length > 0
+            ? message.errors.join("; ")
+            : message.subtype;
+        throw new Error(`Claude agent failed: ${errors}`);
+      }
+    }
+
+    const raw = JSON.parse(
+      await readFile(path.join(workDir, "rounds.json"), "utf8"),
+    );
+    const rounds = RoundsJsonSchema.parse(raw) as RoundResult[];
+    agentLog("INFO", "Validated agent rounds.json", {
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      rounds: rounds.length,
+      roundsPath: path.join(workDir, "rounds.json"),
+    });
+
+    await gpResultRepo.replaceRoundsForFile({
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      rounds,
+    });
+    agentLog("INFO", "Persisted GP result rounds", {
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      rounds: rounds.length,
+    });
+
+    const costUsd = estimateAnthropicCostUsd({
+      model: env.CLAUDE_AGENT_MODEL,
+      inputTokens,
+      outputTokens,
+      env,
+    });
+
+    await logRepo.appendAIExecutionLog({
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      logId: nanoid(),
+      model: env.CLAUDE_AGENT_MODEL,
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      costUsd,
+      purpose: "gp_results:agent",
+      metadata: {
+        rounds: rounds.length,
+        workDirCleaned: true,
+      },
+    });
+
+    await logRepo.appendProcessingLog({
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      logId: nanoid(),
+      level: "INFO",
+      message: `Grand Prix results extraction complete: ${rounds.length} round(s)`,
+      metadata: {
+        rounds: rounds.map((round) => ({
+          type: round.type,
+          championship:
+            round.type === "multi-class" ? round.championship : undefined,
+          grandPrix: round.grandPrix,
+          round: round.type === "multi-class" ? round.round : undefined,
+        })),
+      },
+    });
+  } finally {
+    agentLog("INFO", "Cleaning up Claude agent working directory", {
+      orgId: payload.orgId,
+      fileId: payload.fileId,
+      workDir,
+    });
+    await rm(workDir, { recursive: true, force: true });
+  }
 }

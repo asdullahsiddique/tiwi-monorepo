@@ -8,7 +8,7 @@ import {
   GpResultRepository,
   type F1BaseDocument,
   type F1CollectionName,
-  type GpRaceResultDocument,
+  type GpRoundResultDocument,
 } from "@tiwi/mongodb";
 import { createPresignedGetUrl } from "@tiwi/storage";
 
@@ -30,7 +30,7 @@ export async function getFileView(params: {
   aiLogs: Awaited<ReturnType<LogRepository["listAIExecutionLogs"]>>;
   embeddingsMeta: Awaited<ReturnType<EmbeddingRepository["getEmbeddingsMeta"]>>;
   f1Entities: FileViewEntityGroup[];
-  gpRaceResult: GpRaceResultDocument | null;
+  gpRounds: GpRoundResultDocument[];
 }> {
   const db = await getMongoDb();
 
@@ -72,7 +72,7 @@ export async function getFileView(params: {
     orgId: params.orgId,
     fileId: params.fileId,
   });
-  const gpRaceResult = await gpResultRepo.getByFileId({
+  const gpRounds = await gpResultRepo.listRoundsForFile({
     orgId: params.orgId,
     fileId: params.fileId,
   });
@@ -95,6 +95,6 @@ export async function getFileView(params: {
     aiLogs,
     embeddingsMeta,
     f1Entities,
-    gpRaceResult,
+    gpRounds,
   };
 }

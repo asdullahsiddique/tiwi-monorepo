@@ -59,7 +59,7 @@ export default function FileViewClient(props: { fileId: string }) {
       processingLogs={view.data?.processingLogs ?? []}
       aiLogs={view.data?.aiLogs ?? []}
       f1Entities={view.data?.f1Entities ?? []}
-      gpRaceResult={view.data?.gpRaceResult ?? null}
+      gpRounds={view.data?.gpRounds ?? []}
       onReprocess={handleReprocess}
       isReprocessing={reprocessMutation.isPending}
     />

@@ -29,7 +29,15 @@ export function ensureMongoIndexes(db: Db): Promise<void> {
     await db.collection(COLL.embeddingChunks).createIndex({ orgId: 1, fileId: 1 });
     await db.collection(COLL.searchHistory).createIndex({ orgId: 1, userId: 1, createdAt: -1 });
     await db.collection(COLL.fileProcessingJobs).createIndex({ status: 1, createdAt: 1 });
-    await db.collection(COLL.gpRaceResults).createIndex({ orgId: 1, fileId: 1 }, { unique: true });
+
+    const gpRaceResults = db.collection(COLL.gpRaceResults);
+    const gpRaceResultIndexes = await gpRaceResults.indexes();
+    const gpFileIndex = gpRaceResultIndexes.find((index) => index.name === "orgId_1_fileId_1");
+    if (gpFileIndex?.unique) {
+      await gpRaceResults.dropIndex("orgId_1_fileId_1");
+    }
+    await gpRaceResults.createIndex({ orgId: 1, fileId: 1 });
+    await gpRaceResults.createIndex({ orgId: 1, championship: 1, round: 1 });
 
     // --- F1 collections: shared indexes (entityId uniqueness + fileIds lookup) ---
     for (const coll of Object.values(F1_COLL)) {

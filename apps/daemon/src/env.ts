@@ -12,6 +12,12 @@ const DaemonEnvSchema = z.object({
 
   // Anthropic (optional - for document-specific extraction flows)
   ANTHROPIC_API_KEY: z.string().optional(),
+  CLAUDE_AGENT_MODEL: z.string().min(1).default("claude-opus-4-7"),
+  CLAUDE_AGENT_MAX_TURNS: z.coerce.number().int().positive().default(200),
+  ANTHROPIC_CLAUDE_OPUS_INPUT_USD_PER_1M: z.coerce.number().nonnegative().default(15),
+  ANTHROPIC_CLAUDE_OPUS_OUTPUT_USD_PER_1M: z.coerce.number().nonnegative().default(75),
+  ANTHROPIC_CLAUDE_SONNET_INPUT_USD_PER_1M: z.coerce.number().nonnegative().default(3),
+  ANTHROPIC_CLAUDE_SONNET_OUTPUT_USD_PER_1M: z.coerce.number().nonnegative().default(15),
 
   // AssemblyAI (optional - for video/audio transcription)
   ASSEMBLYAI_API_KEY: z.string().optional(),

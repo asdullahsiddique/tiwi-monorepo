@@ -22,6 +22,7 @@ RUN pnpm install --frozen-lockfile
 FROM node:22-alpine
 
 RUN npm install -g pnpm@10.29.3
+RUN apk add --no-cache poppler-utils
 
 WORKDIR /app
 

@@ -92,7 +92,14 @@ type ToolCall = {
 function getToolCalls(content: unknown[]): ToolCall[] {
   return content
     .filter(
-      (block): block is { type: "tool_use"; name: string; id?: string; input?: unknown } =>
+      (
+        block,
+      ): block is {
+        type: "tool_use";
+        name: string;
+        id?: string;
+        input?: unknown;
+      } =>
         typeof block === "object" &&
         block !== null &&
         (block as { type?: string }).type === "tool_use" &&
@@ -207,7 +214,9 @@ function eventForSdkMessage(message: SDKMessage): AgentQueryEvent | null {
       ts,
       level: isSuccess ? "INFO" : "ERROR",
       type: "result",
-      message: isSuccess ? "Finalising response..." : `Agent failed: ${message.subtype}`,
+      message: isSuccess
+        ? "Finalising response..."
+        : `Agent failed: ${message.subtype}`,
       metadata: {
         subtype: message.subtype,
         numTurns: (message as { num_turns?: number }).num_turns,
@@ -256,7 +265,7 @@ export async function runAgentQuery(job: AgentQueryJobDoc): Promise<void> {
   const logRepo = new LogRepository(db);
 
   if (!env.ANTHROPIC_API_KEY) {
-    const reason = "ANTHROPIC_API_KEY is not configured on the daemon";
+    const reason = "ANTHROPIC_API_KEY is still not configured on the daemon";
     logLine("ERROR", reason, { jobId: job.jobId });
     await failAgentQuery(db, job.jobId, reason);
     return;
@@ -324,19 +333,23 @@ export async function runAgentQuery(job: AgentQueryJobDoc): Promise<void> {
           const text = getFinalAssistantText(message);
           if (text) finalText = text;
           sdkReportedCostUsd =
-            typeof (message as { total_cost_usd?: number }).total_cost_usd === "number"
+            typeof (message as { total_cost_usd?: number }).total_cost_usd ===
+            "number"
               ? (message as { total_cost_usd?: number }).total_cost_usd
               : sdkReportedCostUsd;
         } else {
           succeeded = false;
           const errs = (message as { errors?: string[] }).errors;
-          failureReason = errs && errs.length > 0 ? errs.join("; ") : message.subtype;
+          failureReason =
+            errs && errs.length > 0 ? errs.join("; ") : message.subtype;
         }
       }
     }
 
     if (!succeeded) {
-      throw new Error(failureReason ?? "Agent SDK did not return a successful result");
+      throw new Error(
+        failureReason ?? "Agent SDK did not return a successful result",
+      );
     }
 
     if (!finalText) {
